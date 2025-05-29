@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 import requests
 from bs4 import BeautifulSoup
 import google.generativeai as genai
@@ -18,9 +19,20 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins for development
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 def search_news(company):
     url = "https://api.tavily.com/search"
-    query = f"{company} latest news"
+    # Properly format the company name for the search query
+    formatted_company = company.strip()
+    query = f'"{formatted_company}" latest news'  # Use quotes to keep the company name together
     payload = {
         "api_key": TAVILY_API_KEY,
         "query": query,
