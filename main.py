@@ -4,14 +4,11 @@ import requests
 from bs4 import BeautifulSoup
 import google.generativeai as genai
 import uvicorn
+import re
 
 # API Keys
 TAVILY_API_KEY = "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"
-GEMINI_API_KEY = "AIzaSyAgKdmYgZg-_jVt9wDqDgKPd2ow_OKGrgU"
 
-# Configure Gemini
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-2.0-flash-exp-image-generation")
 
 app = FastAPI(
     title="News API",
@@ -37,7 +34,7 @@ def search_news(company):
         "api_key": TAVILY_API_KEY,
         "query": query,
         "search_depth": "basic",
-        "max_results": 5,
+        "max_results": 10,
         "include_answer": False
     }
     response = requests.post(url, json=payload)
@@ -61,11 +58,18 @@ def scrape_and_clean(url):
     return full_text[:20000]
 
 def summarize_with_gemini(text):
+    GEMINI_API_KEY = "AIzaSyAgKdmYgZg-_jVt9wDqDgKPd2ow_OKGrgU"
+
+    # Configure Gemini
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel("gemini-2.0-flash-lite")
     try:
         prompt = (
-            "Summarize the following article in a concise paragraph:\n\n" +
-            text[:7000]
-        )
+    "Please summarize the following article in 3 to 5 concise bullet points. "
+    "Focus only on content directly relevant to the company. "
+    "strictly Avoid intro introductory or concluding statements, and exclude unrelated context:\n\n"
+    + text[:5000]
+)
         response = model.generate_content(prompt)
         summary = response.text.strip()
         return summary
@@ -73,6 +77,11 @@ def summarize_with_gemini(text):
         return f"Summary failed: {e}"
 
 def news_theme_block_summary_with_gemini(article_summaries):
+    GEMINI_API_KEY = "AIzaSyAgKdmYgZg-_jVt9wDqDgKPd2ow_OKGrgU"
+
+    # Configure Gemini
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel("gemini-2.0-flash")
     prompt = (
         "Given the following news article summaries, organize the key points under these themes: "
         "ensure content inside each theme is relevant to the theme and the company."
@@ -110,6 +119,67 @@ def news_theme_block_summary_with_gemini(article_summaries):
     except Exception as e:
         return {"error": f"Theme block summary failed: {e}"}
 
+def get_company_overview(summaries):
+    try:
+        if not summaries:
+            raise ValueError("No summaries provided")
+        cleaned_summaries = [' '.join(summary.split()) for summary in summaries]
+        combined_summaries = "\n\n".join([f"Article {i+1}:\n{summary}" for i, summary in enumerate(cleaned_summaries)])
+
+        GEMINI_API_KEY = "AIzaSyAgKdmYgZg-_jVt9wDqDgKPd2ow_OKGrgU"
+        genai.configure(api_key=GEMINI_API_KEY)
+        model = genai.GenerativeModel("gemini-2.0-flash-lite")
+
+        prompt = (
+            f"""You are a business analyst. Analyze the article summaries below and generate a structured company overview. Use all available information to provide a clear, concise summary. If any detail is missing take overall summary try to summarise accordingly"
+            source: {combined_summaries}
+            Instructions:
+            Cover all the articles.
+            Use 3 sentences per section.
+            Return the Output Format (use exact section titles):
+            {{
+            Company Snapshot:{{
+                Overview: Give a brief overview of the company.
+                Executive Summary: What does the company do? What are its mission, vision, and value proposition?
+                Key Facts: Founded year, headquarters, employee count, public/private status, stock info, and geographies.
+                Business Model & Revenue Streams: Revenue sources and key products/services.
+                Leadership: Key executives and board members.
+                }}
+             
+            Initiatives:{{
+            Strategic Initiatives: Top 1–3 year goals and how the company plans to achieve them.
+            Data Maturity & Initiatives: Tech maturity, live/pilot/planned projects, tools, and AI/ML use cases.
+            Partnerships: Key external partners and collaborations.
+            }}
+            }}"""
+        )
+
+        response = model.generate_content(prompt)
+        import json
+        import re
+        overview_text = re.findall(r"```json\s*(\{.*?\})\s*```", response.text.strip(), re.DOTALL)[-1] 
+        overview_text =json.loads(overview_text)
+        print("Gemini Overview Response:\n", overview_text)
+
+
+        return overview_text
+
+    except Exception as e:
+        return {
+            "Company Snapshot": {
+                "Overview": f"Error generating overview: {str(e)}",
+                "Executive Summary": f"Error generating overview: {str(e)}",
+                "Key Facts": f"Error generating overview: {str(e)}",
+                "Business Model & Revenue Streams": f"Error generating overview: {str(e)}",
+                "Leadership": f"Error generating overview: {str(e)}"
+            },
+            "Initiatives": {
+                "Strategic Initiatives": f"Error generating overview: {str(e)}",
+                "Data Maturity & Initiatives": f"Error generating overview: {str(e)}",
+                "Partnerships": f"Error generating overview: {str(e)}"
+            }
+        }
+
 @app.get("/news")
 async def get_company_news(company: str):
     try:
@@ -121,26 +191,65 @@ async def get_company_news(company: str):
         result = {
             "company": company,
             "articles": [],
-            "themes": {}
+            "themes": {},
+            "company_overview": {}
         }
         
-        for article in articles:
+        # First collect all summaries
+        all_summaries = []
+        print(f"Found {len(articles)} articles for {company}")
+        for idx, article in enumerate(articles):
             url = article["url"]
+            print(f"\nProcessing Article {idx+1}: {url}")
             text = scrape_and_clean(url)
             
+            if text.startswith("Failed"):
+                print(f"  Scraping failed: {text}")
+                summary = None # Ensure summary is None if scraping failed
+            else:
+                print(f"  Scraping successful. Text length: {len(text)}")
+                if not text.strip():
+                    print("  Scraped text is empty or only whitespace.")
+                    summary = None
+                else:
+                    summary = summarize_with_gemini(text)
+                    if summary is None or summary.startswith("Summary failed"):
+                        print(f"  Summarization failed or returned error: {summary}")
+                        summary = None # Ensure summary is None on failure
+                    elif not summary.strip():
+                         print("  Summarization returned empty or whitespace summary.")
+                         summary = None
+                    else:
+                        # Clean up the summary: remove extra whitespace and normalize
+                        cleaned_summary = ' '.join(summary.split())
+                        if cleaned_summary:
+                            print(f"  Summary generated successfully. Cleaned summary length: {len(cleaned_summary)}")
+                            all_summaries.append(cleaned_summary)
+                        else:
+                            print("  Cleaned summary is empty.")
+                            summary = None # Ensure summary is None if cleaned is empty
+
             article_data = {
                 "url": url,
-                "summary": summarize_with_gemini(text) if not text.startswith("Failed") else None
+                "summary": summary
             }
             result["articles"].append(article_data)
         
-        # Theme-wise summary
-        all_summaries = [article["summary"] for article in result["articles"] if article["summary"]]
+        print(f"Total valid summaries collected: {len(all_summaries)}")
+        # Verify we have summaries
+        if not all_summaries:
+            raise HTTPException(status_code=404, detail="No valid summaries could be generated")
+            
+        # Generate company overview with all summaries
+        result["company_overview"] = get_company_overview(all_summaries)
+        
+        # Generate themes
         result["themes"] = news_theme_block_summary_with_gemini(all_summaries)
         
         return result
     
     except Exception as e:
+        print(f"An error occurred in get_company_news: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
