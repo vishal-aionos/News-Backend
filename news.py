@@ -1,6 +1,25 @@
 import requests
 from newspaper import Article
 import google.generativeai as genai
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+import uvicorn
+
+app = FastAPI(
+    title="News API",
+    description="API to get company news and summaries",
+    version="1.0.0"
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # API Keys
 SERPER_API_KEY = "768b1956ea4252916980afb7b0d7f31f8e5d2f37"
@@ -71,46 +90,113 @@ def summarize(text, company):
     except Exception:
         return ""
 
-# Main logic
-def main():
-    company = input("Enter a company name: ").strip()
-    company_words = company.lower().split()
+def news_theme_block_summary_with_gemini(article_summaries):
+    try:
+        prompt = (
+            "Given the following news article summaries, organize the key points under these themes: "
+            "ensure content inside each theme is relevant to the theme and the company."
+            "For each theme, provide 2 or 3 concise points (comma-separated, or as a short paragraph). "
+            "If there is no news for a theme, write 'No major news'. "
+            "Format the output as follows (do not use markdown or bullet points):\n"
+            "News\n"
+            "1) Partnerships: ...\n"
+            "2) AI/Tech: ...\n"
+            "3) Market Strategy: ...\n"
+            "4) Expansion: ...\n"
+            "5) Product/Fleet: ...\n"
+            "6) Infra/Invest: ...\n\n"
+            "Here are the summaries:\n\n" + "\n\n".join(article_summaries)
+        )
+        response = model.generate_content(prompt)
+        theme_text = response.text.strip()
+        
+        # Parse the theme text into a structured format
+        themes = {}
+        current_theme = None
+        
+        for line in theme_text.split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+                
+            if line.startswith(('1)', '2)', '3)', '4)', '5)', '6)')):
+                theme_name = line.split(':', 1)[0].split(')')[1].strip()
+                content = line.split(':', 1)[1].strip() if ':' in line else ''
+                themes[theme_name] = content
+                
+        return themes
+    except Exception as e:
+        return {"error": f"Theme block summary failed: {e}"}
 
-    collected_summaries = []
-    seen_urls = set()
-    search_attempts = 0
-    max_attempts = 5  # Maximum number of search attempts
 
-    while len(collected_summaries) < 10 and search_attempts < max_attempts:
-        search_attempts += 1
+@app.get("/news")
+async def get_company_news(company: str):
+    try:
+        # Get news articles
         urls = search_news(company)
+        if not urls:
+            raise HTTPException(status_code=404, detail="No articles found")
+        
+        # Collect all valid summaries
+        all_summaries = []
+        seen_urls = set()
+        articles_data = []
+        search_attempts = 0
+        max_attempts = 5  # Maximum number of search attempts
 
-        new_urls = [url for url in urls if url not in seen_urls]
-        if not new_urls:
-            continue
-
-        for url in new_urls:
-            seen_urls.add(url)
-            text = scrape_article(url)
-
-            if not text:
+        while len(articles_data) < 10 and search_attempts < max_attempts:
+            search_attempts += 1
+            new_urls = [url for url in urls if url not in seen_urls]
+            
+            if not new_urls:
                 continue
 
-            if not any(word in text.lower() for word in company_words):
-                continue
-
-            summary = summarize(text, company)
-            if not summary:  # Empty string means summary failed
-                continue
-
-            collected_summaries.append((url, summary))
-
-            if len(collected_summaries) >= 10:
-                break
-
-    print(f"\nFound {len(collected_summaries)} relevant articles for '{company}':\n")
-    for i, (url, summary) in enumerate(collected_summaries, 1):
-        print(f"Article {i}: {url}\n{summary}\n")
+            for url in new_urls:
+                if len(articles_data) >= 10:
+                    break
+                    
+                seen_urls.add(url)
+                text = scrape_article(url)
+                
+                if not text:
+                    continue
+                    
+                summary = summarize(text, company)
+                if not summary:
+                    continue
+                    
+                # Clean up the summary
+                cleaned_summary = ' '.join(summary.split())
+                if cleaned_summary:
+                    all_summaries.append(cleaned_summary)
+                    articles_data.append({
+                        "url": url,
+                        "summary": cleaned_summary
+                    })
+        
+        if not all_summaries:
+            raise HTTPException(status_code=404, detail="No valid summaries could be generated")
+            
+        # Generate themes
+        themes = news_theme_block_summary_with_gemini(all_summaries)
+        
+        # Structure the response
+        response = {
+            "company": company,
+            "articles": articles_data,
+            "themes": themes
+        }
+        
+        return JSONResponse(
+            content=response,
+            status_code=200,
+            headers={"Content-Type": "application/json"}
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
-    main()
+    uvicorn.run("news:app", host="0.0.0.0", port=8000, reload=True)
