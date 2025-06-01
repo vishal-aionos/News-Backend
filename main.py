@@ -1,14 +1,10 @@
+import requests
+from newspaper import Article
+import google.generativeai as genai
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-import requests
-from bs4 import BeautifulSoup
-import google.generativeai as genai
+from fastapi.responses import JSONResponse
 import uvicorn
-import re
-
-# API Keys
-TAVILY_API_KEY = "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"
-
 
 app = FastAPI(
     title="News API",
@@ -19,85 +15,98 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for development
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-def search_news(company):
-    url = "https://api.tavily.com/search"
-    # Properly format the company name for the search query
-    formatted_company = company.strip()
-    query = f'"{formatted_company}" latest news'  # Use quotes to keep the company name together
-    payload = {
-        "api_key": TAVILY_API_KEY,
-        "query": query,
-        "search_depth": "basic",
-        "max_results": 10,
-        "include_answer": False
+# API Keys
+SERPER_API_KEY = "768b1956ea4252916980afb7b0d7f31f8e5d2f37"
+GEMINI_API_KEY = "AIzaSyAgKdmYgZg-_jVt9wDqDgKPd2ow_OKGrgU"
+
+# Configure Gemini
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel("gemini-2.0-flash-lite")
+
+# Function to search news using Serper
+def search_news(company, page=1):
+    url = "https://google.serper.dev/news"
+    headers = {
+        "X-API-KEY": SERPER_API_KEY,
+        "Content-Type": "application/json"
     }
-    response = requests.post(url, json=payload)
-    return response.json().get("results", [])
+    # Try different search queries to get more results
+    queries = [
+        f"{company} latest news",
+        f"{company} company news",
+        f"{company} investments news",
+        f"{company} business news",
+        f"{company} technology news"
+    ]
+    
+    all_links = []
+    for query in queries:
+        payload = {"q": query}
+        try:
+            response = requests.post(url, headers=headers, json=payload)
+            data = response.json()
+            
+            if "news" in data:
+                company_words = company.lower().split()
+                for item in data["news"]:
+                    title = item.get("title", "").lower()
+                    snippet = item.get("snippet", "").lower()
+                    if any(word in title or word in snippet for word in company_words):
+                        all_links.append(item["link"])
+        except Exception:
+            continue
+            
+    return all_links
 
-def scrape_and_clean(url):
-    headers = {"User-Agent": "Mozilla/5.0"}
+# Scrape article using newspaper3k
+def scrape_article(url):
     try:
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-    except requests.RequestException as e:
-        return f"Failed to fetch content: {str(e)}"
- 
-    soup = BeautifulSoup(response.text, 'html.parser')
-    text_elements = soup.find_all(['p', 'div', 'span', 'li'])
- 
-    full_text = "\n".join(
-        text for el in text_elements
-        if (text := el.get_text(strip=True)) and len(text) > 40
-    )
-    return full_text[:20000]
+        article = Article(url)
+        article.download()
+        article.parse()
+        if len(article.text.strip()) > 500:
+            return article.text[:20000]
+    except Exception:
+        return ""
+    return ""
 
-def summarize_with_gemini(text):
-    GEMINI_API_KEY = "AIzaSyAgKdmYgZg-_jVt9wDqDgKPd2ow_OKGrgU"
-
-    # Configure Gemini
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-2.0-flash-lite")
+# Summarize using Gemini
+def summarize(text, company):
     try:
         prompt = (
-    "Please summarize the following article in 3 to 5 concise bullet points. "
-    "Focus only on content directly relevant to the company. "
-    "strictly Avoid intro introductory or concluding statements, and exclude unrelated context:\n\n"
-    + text[:5000]
-)
+            f"Summarize the following article into 3–4 bullet points.remove intro and outro of the article in the summary.Only include information relevant to '{company}' and skip any generic or unrelated content:\n\n{text[:3000]}"
+        )
         response = model.generate_content(prompt)
         summary = response.text.strip()
+        if len(summary) < 30:
+            return ""
         return summary
-    except Exception as e:
-        return f"Summary failed: {e}"
+    except Exception:
+        return ""
 
 def news_theme_block_summary_with_gemini(article_summaries):
-    GEMINI_API_KEY = "AIzaSyAgKdmYgZg-_jVt9wDqDgKPd2ow_OKGrgU"
-
-    # Configure Gemini
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-2.0-flash")
-    prompt = (
-        "Given the following news article summaries, organize the key points under these themes: "
-        "ensure content inside each theme is relevant to the theme and the company."
-        "For each theme, provide 2 or 3 concise points (comma-separated, or as a short paragraph). "
-        "If there is no news for a theme, write 'No major news'. "
-        "Format the output as follows (do not use markdown or bullet points):\n"
-        "News\n"
-        "1) Partnerships: ...\n"
-        "2) AI/Tech: ...\n"
-        "3) Market Strategy: ...\n"
-        "4) Expansion: ...\n"
-        "5) Product/Fleet: ...\n"
-        "6) Infra/Invest: ...\n\n"
-        "Here are the summaries:\n\n" + "\n\n".join(article_summaries)
-    )
     try:
+        prompt = (
+            "Given the following news article summaries, organize the key points under these themes: "
+            "ensure content inside each theme is relevant to the theme and the company."
+            "For each theme, provide 2 or 3 concise points (comma-separated, or as a short paragraph). "
+            "If there is no news for a theme, write 'No major news'. "
+            "Format the output as follows (do not use markdown or bullet points):\n"
+            "News\n"
+            "1) Partnerships: ...\n"
+            "2) AI/Tech: ...\n"
+            "3) Market Strategy: ...\n"
+            "4) Expansion: ...\n"
+            "5) Product/Fleet: ...\n"
+            "6) Infra/Invest: ...\n\n"
+            "Here are the summaries:\n\n" + "\n\n".join(article_summaries)
+        )
         response = model.generate_content(prompt)
         theme_text = response.text.strip()
         
@@ -119,139 +128,74 @@ def news_theme_block_summary_with_gemini(article_summaries):
     except Exception as e:
         return {"error": f"Theme block summary failed: {e}"}
 
-def get_company_overview(summaries):
-    try:
-        if not summaries:
-            raise ValueError("No summaries provided")
-        cleaned_summaries = [' '.join(summary.split()) for summary in summaries]
-        combined_summaries = "\n\n".join([f"Article {i+1}:\n{summary}" for i, summary in enumerate(cleaned_summaries)])
-
-        GEMINI_API_KEY = "AIzaSyAgKdmYgZg-_jVt9wDqDgKPd2ow_OKGrgU"
-        genai.configure(api_key=GEMINI_API_KEY)
-        model = genai.GenerativeModel("gemini-2.0-flash-lite")
-
-        prompt = (
-            f"""You are a business analyst. Analyze the article summaries below and generate a structured company overview. Use all available information to provide a clear, concise summary. If any detail is missing take overall summary try to summarise accordingly"
-            source: {combined_summaries}
-            Instructions:
-            Cover all the articles.
-            Use 3 sentences per section.
-            Return the Output Format (use exact section titles):
-            {{
-            Company Snapshot:{{
-                Overview: Give a brief overview of the company.
-                Executive Summary: What does the company do? What are its mission, vision, and value proposition?
-                Key Facts: Founded year, headquarters, employee count, public/private status, stock info, and geographies.
-                Business Model & Revenue Streams: Revenue sources and key products/services.
-                Leadership: Key executives and board members.
-                }}
-             
-            Initiatives:{{
-            Strategic Initiatives: Top 1–3 year goals and how the company plans to achieve them.
-            Data Maturity & Initiatives: Tech maturity, live/pilot/planned projects, tools, and AI/ML use cases.
-            Partnerships: Key external partners and collaborations.
-            }}
-            }}"""
-        )
-
-        response = model.generate_content(prompt)
-        import json
-        import re
-        overview_text = re.findall(r"```json\s*(\{.*?\})\s*```", response.text.strip(), re.DOTALL)[-1] 
-        overview_text =json.loads(overview_text)
-        print("Gemini Overview Response:\n", overview_text)
-
-
-        return overview_text
-
-    except Exception as e:
-        return {
-            "Company Snapshot": {
-                "Overview": f"Error generating overview: {str(e)}",
-                "Executive Summary": f"Error generating overview: {str(e)}",
-                "Key Facts": f"Error generating overview: {str(e)}",
-                "Business Model & Revenue Streams": f"Error generating overview: {str(e)}",
-                "Leadership": f"Error generating overview: {str(e)}"
-            },
-            "Initiatives": {
-                "Strategic Initiatives": f"Error generating overview: {str(e)}",
-                "Data Maturity & Initiatives": f"Error generating overview: {str(e)}",
-                "Partnerships": f"Error generating overview: {str(e)}"
-            }
-        }
-
 @app.get("/news")
 async def get_company_news(company: str):
     try:
-        articles = search_news(company)
-        
-        if not articles:
+        # Get news articles
+        urls = search_news(company)
+        if not urls:
             raise HTTPException(status_code=404, detail="No articles found")
         
-        result = {
-            "company": company,
-            "articles": [],
-            "themes": {},
-            "company_overview": {}
-        }
-        
-        # First collect all summaries
+        # Collect all valid summaries
         all_summaries = []
-        print(f"Found {len(articles)} articles for {company}")
-        for idx, article in enumerate(articles):
-            url = article["url"]
-            print(f"\nProcessing Article {idx+1}: {url}")
-            text = scrape_and_clean(url)
-            
-            if text.startswith("Failed"):
-                print(f"  Scraping failed: {text}")
-                summary = None # Ensure summary is None if scraping failed
-            else:
-                print(f"  Scraping successful. Text length: {len(text)}")
-                if not text.strip():
-                    print("  Scraped text is empty or only whitespace.")
-                    summary = None
-                else:
-                    summary = summarize_with_gemini(text)
-                    if summary is None or summary.startswith("Summary failed"):
-                        print(f"  Summarization failed or returned error: {summary}")
-                        summary = None # Ensure summary is None on failure
-                    elif not summary.strip():
-                         print("  Summarization returned empty or whitespace summary.")
-                         summary = None
-                    else:
-                        # Clean up the summary: remove extra whitespace and normalize
-                        cleaned_summary = ' '.join(summary.split())
-                        if cleaned_summary:
-                            print(f"  Summary generated successfully. Cleaned summary length: {len(cleaned_summary)}")
-                            all_summaries.append(cleaned_summary)
-                        else:
-                            print("  Cleaned summary is empty.")
-                            summary = None # Ensure summary is None if cleaned is empty
+        seen_urls = set()
+        articles_data = []
+        search_attempts = 0
+        max_attempts = 5  # Maximum number of search attempts
 
-            article_data = {
-                "url": url,
-                "summary": summary
-            }
-            result["articles"].append(article_data)
+        while len(articles_data) < 10 and search_attempts < max_attempts:
+            search_attempts += 1
+            new_urls = [url for url in urls if url not in seen_urls]
+            
+            if not new_urls:
+                continue
+
+            for url in new_urls:
+                if len(articles_data) >= 10:
+                    break
+                    
+                seen_urls.add(url)
+                text = scrape_article(url)
+                
+                if not text:
+                    continue
+                    
+                summary = summarize(text, company)
+                if not summary:
+                    continue
+                    
+                # Clean up the summary
+                cleaned_summary = ' '.join(summary.split())
+                if cleaned_summary:
+                    all_summaries.append(cleaned_summary)
+                    articles_data.append({
+                        "url": url,
+                        "summary": cleaned_summary
+                    })
         
-        print(f"Total valid summaries collected: {len(all_summaries)}")
-        # Verify we have summaries
         if not all_summaries:
             raise HTTPException(status_code=404, detail="No valid summaries could be generated")
             
-        # Generate company overview with all summaries
-        result["company_overview"] = get_company_overview(all_summaries)
-        
         # Generate themes
-        result["themes"] = news_theme_block_summary_with_gemini(all_summaries)
+        themes = news_theme_block_summary_with_gemini(all_summaries)
         
-        return result
+        # Structure the response
+        response = {
+            "company": company,
+            "articles": articles_data,
+            "themes": themes
+        }
+        
+        return JSONResponse(
+            content=response,
+            status_code=200,
+            headers={"Content-Type": "application/json"}
+        )
     
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"An error occurred in get_company_news: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True) 
+    uvicorn.run("news:app", host="0.0.0.0", port=8000, reload=True)
