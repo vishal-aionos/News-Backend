@@ -5,6 +5,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
+import asyncio
+import httpx
+from bs4 import BeautifulSoup
+from typing import List, Dict, Any
 
 app = FastAPI(
     title="News API",
@@ -29,68 +33,162 @@ GEMINI_API_KEY = "AIzaSyAgKdmYgZg-_jVt9wDqDgKPd2ow_OKGrgU"
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-2.0-flash-lite")
 
-# Function to search news using Serper
-def search_news(company, page=1):
+async def search_news_async(client: httpx.AsyncClient, query: str) -> List[str]:
     url = "https://google.serper.dev/news"
     headers = {
         "X-API-KEY": SERPER_API_KEY,
         "Content-Type": "application/json"
     }
-    # Try different search queries to get more results
+    payload = {"q": query}
+    
+    try:
+        response = await client.post(url, headers=headers, json=payload)
+        data = response.json()
+        
+        if "news" in data:
+            # Filter out irrelevant results
+            company_words = query.split()[0].lower()  # Get company name
+            relevant_links = []
+            seen_titles = set()
+            
+            for item in data["news"]:
+                title = item.get("title", "").lower()
+                snippet = item.get("snippet", "").lower()
+                
+                # Skip if we've seen a similar title
+                if any(title in seen_title or seen_title in title for seen_title in seen_titles):
+                    continue
+                    
+                # Check if the content is relevant
+                if (company_words in title or company_words in snippet) and \
+                   not any(word in title.lower() for word in ["stock", "share", "price", "trading", "market"]):
+                    relevant_links.append(item["link"])
+                    seen_titles.add(title)
+            
+            return relevant_links
+    except Exception as e:
+        print(f"Search error: {str(e)}")
+        return []
+    return []
+
+async def search_news(company: str) -> List[str]:
+    # More focused search queries
     queries = [
-        f"{company} latest news",
-        f"{company} company news",
-        f"{company} investments news",
-        f"{company} business news",
-        f"{company} technology news"
+        f"{company} strategic partnership announcement",
+        f"{company} new technology innovation",
+        f"{company} business expansion news",
+        f"{company} major acquisition",
+        f"{company} new product launch",
+        f"{company} digital transformation initiative",
+        f"{company} new office opening",
+        f"{company} collaboration announcement",
+        f"{company} new service offering",
+        f"{company} industry award recognition"
     ]
     
-    all_links = []
-    for query in queries:
-        payload = {"q": query}
-        try:
-            response = requests.post(url, headers=headers, json=payload)
-            data = response.json()
-            
-            if "news" in data:
-                company_words = company.lower().split()
-                for item in data["news"]:
-                    title = item.get("title", "").lower()
-                    snippet = item.get("snippet", "").lower()
-                    if any(word in title or word in snippet for word in company_words):
-                        all_links.append(item["link"])
-        except Exception:
-            continue
-            
-    return all_links
+    async with httpx.AsyncClient() as client:
+        tasks = [search_news_async(client, query) for query in queries]
+        results = await asyncio.gather(*tasks)
+        
+    # Flatten results and remove duplicates
+    all_links = list(set([link for sublist in results for link in sublist]))
+    return all_links[:20]  # Limit to 20 URLs as suggested
 
-# Scrape article using newspaper3k
-def scrape_article(url):
+async def scrape_article_async(client: httpx.AsyncClient, url: str) -> str:
     try:
-        article = Article(url)
-        article.download()
-        article.parse()
-        if len(article.text.strip()) > 500:
-            return article.text[:20000]
-    except Exception:
+        response = await client.get(url, timeout=10.0)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Remove unwanted elements
+        for element in soup(['script', 'style', 'nav', 'header', 'footer', 'aside', 'iframe']):
+            element.decompose()
+            
+        # Get main content with better targeting
+        article_text = ""
+        
+        # Try to find the main article content
+        main_content = soup.find('article') or soup.find('main') or soup.find('div', class_=['content', 'article', 'story'])
+        if main_content:
+            article_text = ' '.join([p.get_text().strip() for p in main_content.find_all(['p', 'h1', 'h2', 'h3'])])
+        else:
+            # Fallback to all paragraphs if no main content found
+            article_text = ' '.join([p.get_text().strip() for p in soup.find_all('p')])
+        
+        # Clean up the text
+        article_text = ' '.join(article_text.split())
+        
+        if len(article_text) > 500:
+            return article_text[:20000]
+    except Exception as e:
+        print(f"Scraping error for {url}: {str(e)}")
         return ""
     return ""
 
-# Summarize using Gemini
-def summarize(text, company):
+async def scrape_articles(urls: List[str]) -> List[Dict[str, str]]:
+    async with httpx.AsyncClient() as client:
+        tasks = [scrape_article_async(client, url) for url in urls]
+        texts = await asyncio.gather(*tasks)
+        
+    return [{"url": url, "text": text} for url, text in zip(urls, texts) if text]
+
+def summarize_sync(text: str, company: str) -> str:
     try:
+        # Check if the text contains enough relevant content
+        company_words = company.lower().split()
+        text_lower = text.lower()
+        
+        # Count occurrences of company name and related terms
+        relevance_score = sum(text_lower.count(word) for word in company_words)
+        
+        if relevance_score < 3:  # Minimum threshold for relevance
+            return ""
+            
         prompt = (
-            f"Summarize the following article into 3–4 bullet points.remove intro and outro of the article in the summary.Only include information relevant to '{company}' and skip any generic or unrelated content:\n\n{text[:3000]}"
+            f"Summarize the following article into 3–4 bullet points. Focus only on concrete news and developments about {company}. "
+            f"Exclude any generic information, stock prices, or market analysis. "
+            f"Only include specific facts, numbers, and announcements:\n\n{text[:3000]}"
         )
         response = model.generate_content(prompt)
         summary = response.text.strip()
-        if len(summary) < 30:
+        
+        # Validate summary quality
+        if len(summary) < 50 or "no information" in summary.lower() or "doesn't contain" in summary.lower():
             return ""
-        return summary
-    except Exception:
+            
+        return ' '.join(summary.split())  # Clean up whitespace
+    except Exception as e:
+        print(f"Summarization error: {str(e)}")
         return ""
 
-def news_theme_block_summary_with_gemini(article_summaries):
+async def summarize_articles(articles: List[Dict[str, str]], company: str) -> List[Dict[str, str]]:
+    # Process articles in batches to avoid overwhelming the API
+    batch_size = 5
+    all_summaries = []
+    
+    for i in range(0, len(articles), batch_size):
+        batch = articles[i:i + batch_size]
+        # Run summarization in a thread pool to avoid blocking
+        loop = asyncio.get_event_loop()
+        tasks = [
+            loop.run_in_executor(None, summarize_sync, article["text"], company)
+            for article in batch
+        ]
+        summaries = await asyncio.gather(*tasks)
+        
+        for article, summary in zip(batch, summaries):
+            if summary:
+                all_summaries.append({
+                    "url": article["url"],
+                    "summary": summary
+                })
+                
+        # If we have enough summaries, stop processing
+        if len(all_summaries) >= 10:
+            break
+            
+    return all_summaries[:10]  # Ensure we return at most 10 summaries
+
+def generate_themes_sync(article_summaries: List[str]) -> Dict[str, str]:
     try:
         prompt = (
             "Given the following news article summaries, organize the key points under these themes: "
@@ -126,59 +224,38 @@ def news_theme_block_summary_with_gemini(article_summaries):
                 
         return themes
     except Exception as e:
-        return {"error": f"Theme block summary failed: {e}"}
-
+        print(f"Theme generation error: {str(e)}")
+        return {
+            "Partnerships": "No major news",
+            "AI/Tech": "No major news",
+            "Market Strategy": "No major news",
+            "Expansion": "No major news",
+            "Product/Fleet": "No major news",
+            "Infra/Invest": "No major news"
+        }
 
 @app.get("/news")
 async def get_company_news(company: str):
     try:
         # Get news articles
-        urls = search_news(company)
+        urls = await search_news(company)
         if not urls:
             raise HTTPException(status_code=404, detail="No articles found")
         
-        # Collect all valid summaries
-        all_summaries = []
-        seen_urls = set()
-        articles_data = []
-        search_attempts = 0
-        max_attempts = 5  # Maximum number of search attempts
-
-        while len(articles_data) < 10 and search_attempts < max_attempts:
-            search_attempts += 1
-            new_urls = [url for url in urls if url not in seen_urls]
+        # Scrape articles concurrently
+        articles = await scrape_articles(urls)
+        if not articles:
+            raise HTTPException(status_code=404, detail="No valid articles could be scraped")
             
-            if not new_urls:
-                continue
-
-            for url in new_urls:
-                if len(articles_data) >= 10:
-                    break
-                    
-                seen_urls.add(url)
-                text = scrape_article(url)
-                
-                if not text:
-                    continue
-                    
-                summary = summarize(text, company)
-                if not summary:
-                    continue
-                    
-                # Clean up the summary
-                cleaned_summary = ' '.join(summary.split())
-                if cleaned_summary:
-                    all_summaries.append(cleaned_summary)
-                    articles_data.append({
-                        "url": url,
-                        "summary": cleaned_summary
-                    })
-        
-        if not all_summaries:
+        # Summarize articles concurrently
+        articles_data = await summarize_articles(articles, company)
+        if not articles_data:
             raise HTTPException(status_code=404, detail="No valid summaries could be generated")
             
         # Generate themes
-        themes = news_theme_block_summary_with_gemini(all_summaries)
+        all_summaries = [article["summary"] for article in articles_data]
+        loop = asyncio.get_event_loop()
+        themes = await loop.run_in_executor(None, generate_themes_sync, all_summaries)
         
         # Structure the response
         response = {
@@ -196,6 +273,7 @@ async def get_company_news(company: str):
     except HTTPException:
         raise
     except Exception as e:
+        print(f"Error in get_company_news: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
