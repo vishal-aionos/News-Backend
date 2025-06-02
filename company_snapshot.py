@@ -96,21 +96,25 @@ def clean_text(text: str) -> str:
     text = ''.join(char for char in text if char.isprintable())
     return text.strip()
 
-async def summarize_snapshot(all_text: str, company_name: str) -> str:
+async def summarize_snapshot(section_content: dict, company_name: str) -> dict:
     try:
-        # Limit text length for faster processing
+        # Concatenate all content for the prompt, but keep section mapping
+        all_text = ""
+        for section, data in section_content.items():
+            if data["content"]:
+                all_text += f"\n\n--- {section} ---\n{data['content']}"
+
         truncated_text = all_text[:15000]
-        
         prompt = f"""Based on the following content about {company_name}, generate a detailed company snapshot in JSON format with these exact keys and their corresponding information:
 
 {{
-    "Executive Summary": "What does the company do? What is its mission, vision and value proposition?",
-    "Key Facts": "When was it founded? Where is it headquartered? How many employees? Is it public or private? What are its key geographies?",
-    "Business Model & Revenue Streams": "How does the company generate revenue? Which products or services drive the business?",
-    "Leadership": "Who are the key executives and leaders?",
-    "Strategic Initiatives": "What are the company's strategic initiatives?",
-    "Data Maturity & Initiatives": "What are the company's data maturity initiatives?",
-    "Partnerships": "What are the company's partnerships?"
+    "Executive Summary": "What does the company do? What is its mission, vision and value proposition? (Use bullet points)",
+    "Key Facts": "When was it founded? Where is it headquartered? How many employees? Is it public or private? What are its key geographies? (Use bullet points)",
+    "Business Model & Revenue Streams": "How does the company generate revenue? Which products or services drive the business? (Use bullet points)",
+    "Leadership": "Who are the key executives and leaders? (Use bullet points)",
+    "Strategic Initiatives": "What are the company's strategic initiatives? (Use bullet points)",
+    "Data Maturity & Initiatives": "What are the company's data maturity initiatives? (Use bullet points)",
+    "Partnerships": "What are the company's partnerships? (Use bullet points)"
 }}
 
 Content to analyze:
@@ -120,7 +124,7 @@ Instructions:
 1. Generate a JSON object with the exact keys shown above
 2. For each key, provide a concise summary based on the content
 3. If information for a section is not found, use "No specific information available"
-4. Use bullet points where appropriate
+4. Use bullet points for every section (start each point with '•')
 5. Keep responses concise and business-focused
 6. Return ONLY the JSON object, no additional text"""
 
@@ -128,19 +132,22 @@ Instructions:
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
         response_text = response.text.strip()
-        
-        # Clean up the response text
         response_text = response_text.replace('```json', '').replace('```', '')
-        
-        # Find and parse JSON
         import re
         import json
-        
         json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
         if json_match:
             json_str = json_match.group(0)
             try:
-                return json.loads(json_str)
+                summary = json.loads(json_str)
+                # Combine summary and URLs for each section
+                result = {}
+                for section in QUERIES.keys():
+                    result[section] = {
+                        "summary": summary.get(section, ""),
+                        "urls": section_content[section]["urls"]
+                    }
+                return result
             except json.JSONDecodeError:
                 return create_error_response()
         return create_error_response()
@@ -158,37 +165,30 @@ def create_error_response() -> Dict[str, str]:
         "Partnerships": "Error processing company information"
     }
 
-async def generate_company_snapshot(company_name: str) -> Dict[str, str]:
+async def generate_company_snapshot(company_name: str) -> Dict[str, dict]:
     if not company_name.strip():
         return {"error": "Please provide a valid company name."}
-        
-    collected_text = ""
-    successful_sections = 0
-
+    section_content = {}
     async with httpx.AsyncClient(timeout=10.0) as client:
-        # Create tasks for all queries
         tasks = []
         for section, query in QUERIES.items():
             tasks.append(search_serper_async(client, company_name, query))
-        
-        # Wait for all searches to complete
         search_results = await asyncio.gather(*tasks)
-        
-        # Process results and extract content
-        for urls in search_results:
-            if not urls:
-                continue
-                
-            # Try to get content from the first valid URL
-            for url in urls:
-                content = await extract_content_async(client, url)
-                if content:
-                    collected_text += f"\n\n{content}"
-                    successful_sections += 1
-                    break
-
-    if successful_sections == 0:
+        for (section, _), urls in zip(QUERIES.items(), search_results):
+            used_urls = []
+            content = None
+            if urls:
+                for url in urls:
+                    c = await extract_content_async(client, url)
+                    if c:
+                        content = c
+                        used_urls.append(url)
+                        break
+            if content:
+                section_content[section] = {"content": content, "urls": used_urls}
+            else:
+                section_content[section] = {"content": "", "urls": []}
+    if not any(v["content"] for v in section_content.values()):
         return {"error": "No content was collected for summarization. Please try a different company name."}
-
-    snapshot = await summarize_snapshot(collected_text, company_name)
+    snapshot = await summarize_snapshot(section_content, company_name)
     return {"snapshot": snapshot} 
