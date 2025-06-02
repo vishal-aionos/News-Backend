@@ -9,10 +9,11 @@ import asyncio
 import httpx
 from bs4 import BeautifulSoup
 from typing import List, Dict, Any
+from company_snapshot import generate_company_snapshot
 
 app = FastAPI(
     title="News API",
-    description="API to get company news and summaries",
+    description="API to get company news, summaries, and company snapshot",
     version="1.0.0"
 )
 
@@ -74,16 +75,12 @@ async def search_news_async(client: httpx.AsyncClient, query: str) -> List[str]:
 async def search_news(company: str) -> List[str]:
     # More focused search queries
     queries = [
-        f"{company} strategic partnership announcement",
-        f"{company} new technology innovation",
-        f"{company} business expansion news",
-        f"{company} major acquisition",
-        f"{company} new product launch",
-        f"{company} digital transformation initiative",
-        f"{company} new office opening",
-        f"{company} collaboration announcement",
-        f"{company} new service offering",
-        f"{company} industry award recognition"
+        f"{company} latest news 2025",
+        f"{company} recent company announcements June 2025",
+        f"{company} latest press releases 2025",
+        f"{company} new partnerships 2025",
+        f"{company} technology industry news 2025",
+
     ]
     
     async with httpx.AsyncClient() as client:
@@ -257,11 +254,15 @@ async def get_company_news(company: str):
         loop = asyncio.get_event_loop()
         themes = await loop.run_in_executor(None, generate_themes_sync, all_summaries)
         
+        # Generate company snapshot
+        snapshot_result = await generate_company_snapshot(company)
+        
         # Structure the response
         response = {
             "company": company,
             "articles": articles_data,
-            "themes": themes
+            "themes": themes,
+            "company_snapshot": snapshot_result.get("snapshot", "No snapshot available")
         }
         
         return JSONResponse(
@@ -273,7 +274,6 @@ async def get_company_news(company: str):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error in get_company_news: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
