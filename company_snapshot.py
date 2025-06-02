@@ -16,7 +16,9 @@ model = genai.GenerativeModel("gemini-2.0-flash-lite")
 
 # Define information queries with optimized search terms
 QUERIES = {
+    "Executive Summary": "company overview mission vision value proposition",
     "Key Facts": "company overview headquarters employees",
+    "Business Model & Revenue Streams": "revenue products services",
     "Leadership": "executives management team",
     "Strategic Initiatives": "strategy initiatives",
     "Partnerships": "partners collaborations"

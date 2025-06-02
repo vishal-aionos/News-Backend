@@ -32,7 +32,7 @@ GEMINI_API_KEY = "AIzaSyAgKdmYgZg-_jVt9wDqDgKPd2ow_OKGrgU"
 
 # Configure Gemini
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-2.0-flash-lite")
+model = genai.GenerativeModel("gemini-2.0-flash")
 
 async def search_news_async(client: httpx.AsyncClient, query: str) -> List[str]:
     url = "https://google.serper.dev/news"
