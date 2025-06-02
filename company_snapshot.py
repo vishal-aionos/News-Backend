@@ -8,7 +8,11 @@ from concurrent.futures import ThreadPoolExecutor
 
 # API Keys
 SERPER_API_KEY = "768b1956ea4252916980afb7b0d7f31f8e5d2f37"
+<<<<<<< HEAD
 GEMINI_API_KEY = "AIzaSyAt_c0xgaXGg9H4oFX0YUqsQuhnV4gi7BY"
+=======
+GEMINI_API_KEY = "AIzaSyDc1QqASRHyF9jWfaSudb2C4i-wHsRsANQ"
+>>>>>>> 160928bca22a6006cd0731bde2b1b8b23c3405f7
 
 # Configure Gemini
 genai.configure(api_key=GEMINI_API_KEY)
@@ -21,7 +25,11 @@ QUERIES = {
     "Business Model & Revenue Streams": "revenue products services",
     "Leadership": "executives management team",
     "Strategic Initiatives": "strategy initiatives",
+<<<<<<< HEAD
     "Data Maturity & Initiatives": "data initiatives",
+=======
+    "Data Maturity & Initiatives": "data maturity initiatives",
+>>>>>>> 160928bca22a6006cd0731bde2b1b8b23c3405f7
     "Partnerships": "partners collaborations"
 }
 
@@ -184,31 +192,51 @@ async def summarize_snapshot(section_content: dict, company_name: str) -> dict:
 
         truncated_text = all_text[:15000]
         prompt = f"""Based on the following content about {company_name}, generate a detailed company snapshot in JSON format with these exact keys and their corresponding information:
+<<<<<<< HEAD
         Keep responses 5 to 7 sentences and business-focused
 {{
 Company Snapshot:
+=======
+        give the resonses of each section in 5 to 7 sentences and business-focused
+Company snapshot:
+>>>>>>> 160928bca22a6006cd0731bde2b1b8b23c3405f7
 {{
     "Executive Summary": "What does the company do? What is its mission, vision and value proposition? (Use bullet points)",
     "Key Facts": "When was it founded? Where is it headquartered? How many employees? Is it public or private? What are its key geographies? (Use bullet points)",
     "Business Model & Revenue Streams": "How does the company generate revenue? Which products or services drive the business? (Use bullet points)",
+<<<<<<< HEAD
     "Leadership": "Who are the key executives and leaders? (Use bullet points)",
 }}
 Initiatives:
 {{    
+=======
+    "Leadership": "Who are the key executives and leaders? (Use bullet points)"
+}}
+
+Initiatives:
+{{
+>>>>>>> 160928bca22a6006cd0731bde2b1b8b23c3405f7
     "Strategic Initiatives": "What are the company's strategic initiatives? (Use bullet points)",
-    "Data Maturity & Initiatives": "What are the company's data maturity initiatives? (Use bullet points)",
+    "Data Maturity & Initiatives": "How mature are the company's data stack and tech capabilites?What tools, dashboards and AI/ML use-cases power decision-making?(Use bullet points)",
     "Partnerships": "What are the company's partnerships? (Use bullet points)"
 }}
+<<<<<<< HEAD
 }}
 Content to analyze:
 {truncated_text}
+=======
+>>>>>>> 160928bca22a6006cd0731bde2b1b8b23c3405f7
 
 Instructions:
 1. Generate a JSON object with the exact keys shown above
-2. For each key, provide a concise summary based on the content
+2. For each key, provide a detailedsummary based on the content make sure the information is related to the company.
 3. If information for a section is not found, use "No specific information available"
 4. Use bullet points for every section (start each point with '•')
+<<<<<<< HEAD
 5. Return ONLY the JSON object, no additional text"""
+=======
+5.Return ONLY the JSON object, no additional text"""
+>>>>>>> 160928bca22a6006cd0731bde2b1b8b23c3405f7
 
         # Run Gemini in a thread pool to avoid blocking
         loop = asyncio.get_event_loop()
@@ -222,8 +250,14 @@ Instructions:
             json_str = json_match.group(0)
             try:
                 summary = json.loads(json_str)
+<<<<<<< HEAD
                 # Build the result with top-level keys 'Company Snapshot' and 'Initiatives'
                 result = {"Company Snapshot": {}, "Initiatives": {}}
+=======
+                # Combine summary and URLs for each section under the correct top-level key
+                result = {"Company snapshot": {}, "Initiatives": {}}
+                # Map section names to top-level keys
+>>>>>>> 160928bca22a6006cd0731bde2b1b8b23c3405f7
                 company_sections = [
                     "Executive Summary",
                     "Key Facts",
@@ -235,6 +269,7 @@ Instructions:
                     "Data Maturity & Initiatives",
                     "Partnerships"
                 ]
+<<<<<<< HEAD
                 # Fill Company Snapshot
                 for section in company_sections:
                     result["Company Snapshot"][section] = {
@@ -242,6 +277,13 @@ Instructions:
                         "urls": section_content.get(section, {}).get("urls", [])
                     }
                 # Fill Initiatives
+=======
+                for section in company_sections:
+                    result["Company snapshot"][section] = {
+                        "summary": summary.get("Company snapshot", {}).get(section, ""),
+                        "urls": section_content.get(section, {}).get("urls", [])
+                    }
+>>>>>>> 160928bca22a6006cd0731bde2b1b8b23c3405f7
                 for section in initiative_sections:
                     result["Initiatives"][section] = {
                         "summary": summary.get("Initiatives", {}).get(section, ""),

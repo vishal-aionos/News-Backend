@@ -28,11 +28,15 @@ app.add_middleware(
 
 # API Keys
 SERPER_API_KEY = "768b1956ea4252916980afb7b0d7f31f8e5d2f37"
+<<<<<<< HEAD
 GEMINI_API_KEY = "AIzaSyAt_c0xgaXGg9H4oFX0YUqsQuhnV4gi7BY"
+=======
+GEMINI_API_KEY = "AIzaSyDc1QqASRHyF9jWfaSudb2C4i-wHsRsANQ"
+>>>>>>> 160928bca22a6006cd0731bde2b1b8b23c3405f7
 
 # Configure Gemini
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-2.0-flash")
+model = genai.GenerativeModel("gemini-2.0-flash-lite")
 
 async def search_news_async(client: httpx.AsyncClient, query: str) -> List[str]:
     url = "https://google.serper.dev/news"
