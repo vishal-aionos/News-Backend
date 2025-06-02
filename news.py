@@ -28,7 +28,7 @@ app.add_middleware(
 
 # API Keys
 SERPER_API_KEY = "768b1956ea4252916980afb7b0d7f31f8e5d2f37"
-GEMINI_API_KEY = "AIzaSyAgKdmYgZg-_jVt9wDqDgKPd2ow_OKGrgU"
+GEMINI_API_KEY = "AIzaSyAt_c0xgaXGg9H4oFX0YUqsQuhnV4gi7BY"
 
 # Configure Gemini
 genai.configure(api_key=GEMINI_API_KEY)
@@ -72,7 +72,7 @@ async def search_news_async(client: httpx.AsyncClient, query: str) -> List[str]:
         return []
     return []
 
-async def search_news(company: str) -> List[str]:
+async def search_news(company: str, extra_queries: list = None) -> list:
     # More focused search queries
     queries = [
         f"{company} latest news 2025",
@@ -80,16 +80,15 @@ async def search_news(company: str) -> List[str]:
         f"{company} latest press releases 2025",
         f"{company} new partnerships 2025",
         f"{company} technology industry news 2025",
-
     ]
-    
+    if extra_queries:
+        queries.extend(extra_queries)
     async with httpx.AsyncClient() as client:
         tasks = [search_news_async(client, query) for query in queries]
         results = await asyncio.gather(*tasks)
-        
     # Flatten results and remove duplicates
     all_links = list(set([link for sublist in results for link in sublist]))
-    return all_links[:20]  # Limit to 20 URLs as suggested
+    return all_links
 
 async def scrape_article_async(client: httpx.AsyncClient, url: str) -> str:
     try:
@@ -234,43 +233,54 @@ def generate_themes_sync(article_summaries: List[str]) -> Dict[str, str]:
 @app.get("/news")
 async def get_company_news(company: str):
     try:
-        # Get news articles
-        urls = await search_news(company)
-        if not urls:
-            raise HTTPException(status_code=404, detail="No articles found")
-        
-        # Scrape articles concurrently
-        articles = await scrape_articles(urls)
-        if not articles:
-            raise HTTPException(status_code=404, detail="No valid articles could be scraped")
-            
-        # Summarize articles concurrently
-        articles_data = await summarize_articles(articles, company)
-        if not articles_data:
-            raise HTTPException(status_code=404, detail="No valid summaries could be generated")
-            
+        valid_articles = []
+        all_urls = set()
+        extra_queries = []
+        attempt = 0
+        # Keep searching and scraping until we have 10 valid articles
+        while len(valid_articles) < 10 and attempt < 5:
+            urls = await search_news(company, extra_queries)
+            # Add more generic queries if not enough URLs
+            if len(urls) < 30:
+                extra_queries.append(f"{company} business developments 2025")
+                extra_queries.append(f"{company} industry updates 2025")
+                extra_queries.append(f"{company} global expansion 2025")
+            # Add new URLs to the pool
+            for url in urls:
+                all_urls.add(url)
+            # Scrape articles concurrently
+            articles = await scrape_articles(list(all_urls))
+            # Summarize articles concurrently
+            articles_data = await summarize_articles(articles, company)
+            # Only keep unique and valid summaries
+            seen_urls = set(a["url"] for a in valid_articles)
+            for article in articles_data:
+                if article["url"] not in seen_urls and article["summary"]:
+                    valid_articles.append(article)
+                    seen_urls.add(article["url"])
+                if len(valid_articles) == 10:
+                    break
+            attempt += 1
+        if len(valid_articles) < 10:
+            raise HTTPException(status_code=404, detail="Could not find 10 valid news articles.")
         # Generate themes
-        all_summaries = [article["summary"] for article in articles_data]
+        all_summaries = [article["summary"] for article in valid_articles]
         loop = asyncio.get_event_loop()
         themes = await loop.run_in_executor(None, generate_themes_sync, all_summaries)
-        
         # Generate company snapshot
         snapshot_result = await generate_company_snapshot(company)
-        
         # Structure the response
         response = {
             "company": company,
-            "articles": articles_data,
+            "articles": valid_articles,
             "themes": themes,
             "company_snapshot": snapshot_result.get("snapshot", "No snapshot available")
         }
-        
         return JSONResponse(
             content=response,
             status_code=200,
             headers={"Content-Type": "application/json"}
         )
-    
     except HTTPException:
         raise
     except Exception as e:
