@@ -22,7 +22,8 @@ QUERIES = {
     "Leadership": "executives management team",
     "Strategic Initiatives": "strategy initiatives",
     "Data Maturity & Initiatives": "data initiatives",
-    "Partnerships": "partners collaborations"
+    "Partnerships": "partners collaborations",
+    "Oppurtunities for AIonOS": "challenges for the business" 
 }
 
 # Create a thread pool for CPU-bound tasks
@@ -149,7 +150,8 @@ async def summarize_snapshot_with_section_summaries(section_content: dict, compa
     initiative_sections = [
         "Strategic Initiatives",
         "Data Maturity & Initiatives",
-        "Partnerships"
+        "Partnerships",
+        "Oppurtunities for AIonOS"
     ]
     for section in company_sections:
         result["Company Snapshot"][section] = {
@@ -182,11 +184,11 @@ async def summarize_snapshot(section_content: dict, company_name: str) -> dict:
             if data["content"]:
                 all_text += f"\n\n--- {section} ---\n{data['content']}"
 
-        truncated_text = all_text[:15000]
+        truncated_text = all_text[:20000]
         prompt = f"""Based on the following content about {company_name}, generate a detailed company snapshot in JSON format with these exact keys and their corresponding information:
-        Keep responses 5 to 7 sentences and business-focused
+        Keep responses 4 to 5 meaningful and authentic sentences and business-focused
+        Capabilities of AIonOS:AIonOS pioneers industry-specific Agentic AI solutions that autonomously solve complex business challenges while collaborating with human teams for optimal outcomes across travel, transport, hospitality, logistics, and telecom sectors.
 {{
-Company Snapshot:
 {{
     "Executive Summary": "What does the company do? What is its mission, vision and value proposition? (Use bullet points)",
     "Key Facts": "When was it founded? Where is it headquartered? How many employees? Is it public or private? What are its key geographies? (Use bullet points)",
@@ -197,7 +199,8 @@ Initiatives:
 {{    
     "Strategic Initiatives": "What are the company's strategic initiatives? (Use bullet points)",
     "Data Maturity & Initiatives": "How mature are the company's data stack and tech capabilites?What tools, dashboards and AI/ML use-cases power decision-making?(Use bullet points)",
-    "Partnerships": "What are the company's partnerships? (Use bullet points)"
+    "Partnerships": "What are the company's partnerships? (Use bullet points)",
+    "Oppurtunities for AIonOS": "What are the general challenges faced by the company and how can AIonOS company help in solving the issues or challenges try to provide information"      
 }}
 }}
 Content to analyze:

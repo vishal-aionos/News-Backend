@@ -77,12 +77,18 @@ async def search_news_async(client: httpx.AsyncClient, query: str) -> List[str]:
 async def search_news(company: str, extra_queries: list = None) -> list:
     # More focused search queries
     queries = [
-        f"{company} latest news 2025",
-        f"{company} recent company announcements June 2025",
-        f"{company} latest press releases 2025",
-        f"{company} new partnerships 2025",
-        f"{company} technology industry news 2025",
+        f"{company} partnership",
+        f"{company} technology innovation",
+        f"{company} business expansion news",
+        f"{company} major acquisition",
+        f"{company} new product launch",
+        f"{company} digital transformation initiative",
+        f"{company} new office opening",
+        f"{company} collaboration announcement",
+        f"{company} new service offering",
+        f"{company} industry award recognition"
     ]
+    
     if extra_queries:
         queries.extend(extra_queries)
     async with httpx.AsyncClient() as client:
