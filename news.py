@@ -9,7 +9,7 @@ import asyncio
 import httpx
 from bs4 import BeautifulSoup
 from typing import List, Dict, Any
-from company_snapshot import generate_company_snapshot
+from py import generate_company_snapshot
 
 app = FastAPI(
     title="News API",
