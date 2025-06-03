@@ -27,7 +27,7 @@ app.add_middleware(
 )
 
 # API Keys
-SERPER_API_KEY = "768b1956ea4252916980afb7b0d7f31f8e5d2f37"
+SERPER_API_KEY = "44c76a991b10bcccfcc6a61e08bbccc9649377d6"
 GEMINI_API_KEY = "AIzaSyAt_c0xgaXGg9H4oFX0YUqsQuhnV4gi7BY"
 
 

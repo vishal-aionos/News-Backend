@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 import time
 
 # API Keys
-SERPER_API_KEY = "768b1956ea4252916980afb7b0d7f31f8e5d2f37"
+SERPER_API_KEY = "44c76a991b10bcccfcc6a61e08bbccc9649377d6"
 GEMINI_API_KEY = "AIzaSyAgKdmYgZg-_jVt9wDqDgKPd2ow_OKGrgU"
 
 # AIonOS Capabilities
@@ -235,68 +235,25 @@ async def summarize_company_challenges(content: str, company_name: str) -> str:
 async def generate_aionos_solutions(challenges_text: str) -> str:
     """Generate AIonOS solutions based on company challenges."""
     try:
-        # Extract challenges from the summary
-        challenges = [line.strip() for line in challenges_text.split('\n') if line.strip().startswith('•')]
-        if not challenges:
-            # If no challenges found, ask LLM to identify challenges
-            prompt = f"""Based on your knowledge about the company, identify 3-4 key business challenges it faces.
+        prompt = f"""Based on your knowledge about the company, identify 3-4 key business challenges it faces based on the following context: "{challenges_text}", .
 Then, considering AIonOS's capabilities:
 {AIonOS_CAPABILITIES}
 
-Provide a concise 3-5 sentence summary of specific, actionable solutions that AIonOS can provide to address these challenges. Each solution should:
+Provide a concise 5 summary with one sentence for each point in the format of points without side headings for specific, actionable solutions that AIonOS can provide to address these challenges. Each solution should:
 1. Directly address one or more of the identified challenges
 2. Leverage AIonOS's specific capabilities
 3. Be practical and implementable
-4. Focus on business outcomes"""
-        else:
-            prompt = f"""Based on the following company challenges:
-{challenges_text}
-
-And considering AIonOS's capabilities:
-{AIonOS_CAPABILITIES}
-
-Provide a concise 3-5 sentence summary of specific, actionable solutions that AIonOS can provide to address these challenges. Each solution should:
-1. Directly address one or more of the identified challenges
-2. Leverage AIonOS's specific capabilities
-3. Be practical and implementable
-4. Focus on business outcomes"""
+4. Focus on business outcomes
+generate the response in the format of points without side headings and without intro and outro"""
+        
 
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
         summary = response.text.strip()
-        
-        # If response indicates no information, try again with just knowledge
-        if any(x in summary.lower() for x in ["no information", "insufficient", "unable to provide", "unfortunately"]):
-            prompt = f"""Using your knowledge about the company and AIonOS's capabilities:
-{AIonOS_CAPABILITIES}
-
-Provide a concise 3-5 sentence summary of specific, actionable solutions that AIonOS can provide. Each solution should:
-1. Address typical industry challenges
-2. Leverage AIonOS's specific capabilities
-3. Be practical and implementable
-4. Focus on business outcomes"""
-            
-            response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
-            return response.text.strip()
             
         return summary
-    except Exception:
-        # Even in case of error, try to get a knowledge-based response
-        try:
-            prompt = f"""Using your knowledge about the company and AIonOS's capabilities:
-{AIonOS_CAPABILITIES}
-
-Provide a concise 3-5 sentence summary of specific, actionable solutions that AIonOS can provide. Each solution should:
-1. Address typical industry challenges
-2. Leverage AIonOS's specific capabilities
-3. Be practical and implementable
-4. Focus on business outcomes"""
-            
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
-            return response.text.strip()
-        except Exception:
-            return None
+    except Exception as e:
+        raise e
 
 async def process_section(client: httpx.AsyncClient, company_name: str, section: str, query: str) -> Tuple[str, Dict]:
     """Process a single section: for each URL, immediately extract and summarize, return first good summary."""
