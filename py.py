@@ -118,7 +118,7 @@ def clean_text(text: str) -> str:
 
 async def get_executive_summary(client: httpx.AsyncClient, company_name: str) -> Dict:
     """Get executive summary section."""
-    urls = await search_serper_async(client, company_name, "company overview mission vision value proposition")
+    urls = await search_serper_async(client, company_name, "company overview ")
     content = ""
     tried_urls = []
     
@@ -127,31 +127,31 @@ async def get_executive_summary(client: httpx.AsyncClient, company_name: str) ->
         if content:
             tried_urls.append(url)
             # Summarize the found content
-            prompt = f"""Analyze the following content about {company_name} and create a concise five-point summary in bullet format. Each point should be one short sentence covering what the company does, its mission and vision, value proposition, core business focus, and market position. If any information is unavailable or missing, state "Information is currently unavailable or provide details based on your latest knowledge."
+            prompt = f"""Analyze the following content about {company_name} and create a concise five-point summary . Each point should be one short sentence covering what the company does, its mission and vision, value proposition, core business focus, and market position. If any information is unavailable or missing then provide details based on your latest knowledge."
 
 Content to summarize:
 {content[:5000]}
 
 Format:
-• [point 1]
-• [point 2]
-• [point 3]
-• [point 4]
-• [point 5]"""
+[point 1]
+[point 2]
+[point 3]
+[point 4]
+[point 5]"""
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
             content = response.text.strip()
             break
     
     if not content:
-        prompt = f"""Based on the following information about {company_name}, write a concise five-point summary in bullet format. Each point should be a single short sentence covering what the company does, its mission and vision, value proposition, core business focus, and market position. Do not include any side headings, subheadings, introductions, or conclusions.
+        prompt = f"""Based on the following information about {company_name}, write a concise five-point summary. Each point should be a single short sentence covering what the company does, its mission and vision, value proposition, core business focus, and market position. Do not include any side headings, subheadings, introductions, or conclusions.
 
 Format:
-• [point 1]
-• [point 2]
-• [point 3]
-• [point 4]
-• [point 5]"""
+[point 1]
+[point 2]
+[point 3]
+[point 4]
+[point 5]"""
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
         content = response.text.strip()
@@ -181,7 +181,7 @@ async def get_key_facts(client: httpx.AsyncClient, company_name: str) -> Dict:
 
 Content to analyze:
 {content[:5000]}
- If any information is unavailable or missing, state "Information is currently unavailable" or provide details based on your latest knowledge."""
+ If any information is unavailable or missing, then provide details based on your latest knowledge."""
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
             content = response.text.strip()
@@ -214,31 +214,31 @@ async def get_business_model(client: httpx.AsyncClient, company_name: str) -> Di
         if content:
             tried_urls.append(url)
             # Summarize the found content
-            prompt = f"""Analyze the following content about {company_name} and provide a concise five-point summary in bullet format. Each point should be one short sentence that addresses revenue streams, main products or services, business model type, target markets, and competitive advantages. Do not include any side headings, subheadings, introductions, or conclusions.
- If any information is unavailable or missing, state"Information is currently unavailable" or provide details based on your latest knowledge.
+            prompt = f"""Analyze the following content about {company_name} and provide a concise five-point summary. Each point should be one short sentence that addresses revenue streams, main products or services, business model type, target markets, and competitive advantages. Do not include any side headings, subheadings, introductions, or conclusions.
+ If any information is unavailable or missing provide details based on your latest knowledge.
 Content to analyze:
 {content[:5000]}
 
 Format:
-• [point 1]
-• [point 2]
-• [point 3]
-• [point 4]
-• [point 5]"""
+[point 1]
+[point 2]
+[point 3]
+[point 4]
+[point 5]"""
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
             content = response.text.strip()
             break
     
     if not content:
-        prompt = f"""Based on the following information about {company_name}, provide a five-point summary in bullet format. Each point should be one short sentence covering revenue streams, main products or services, business model type, target markets, and competitive advantages. Do not include any side headings, subheadings, introductions, or conclusions in the output.
+        prompt = f"""Based on the following information about {company_name}, provide a five-point summary. Each point should be one short sentence covering revenue streams, main products or services, business model type, target markets, and competitive advantages. Do not include any side headings, subheadings, introductions, or conclusions in the output.
 
 Format:
-• [point 1]
-• [point 2]
-• [point 3]
-• [point 4]
-• [point 5]"""
+[point 1]
+[point 2]
+[point 3]
+[point 4]
+[point 5]"""
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
         content = response.text.strip()
@@ -260,30 +260,30 @@ async def get_leadership(client: httpx.AsyncClient, company_name: str) -> Dict:
             tried_urls.append(url)
             # Summarize the found content
             prompt = f"""Analyze the following content about {company_name} and summarize its leadership in exactly five bullet points. Each point should be one concise sentence covering key executives, leadership structure, notable positions, recent changes, and leadership style or approach. The output must start each point with a bullet (•) and must not include any side headings, subheadings, introductions, or conclusions.
- If any information is unavailable or missing, state "Information is currently unavailable" or provide details based on your latest knowledge..
+If any information is unavailable or missing, then provide details based on your latest knowledge..
 Content to analyze:
 {content[:5000]}
 
 Format:
-• [point 1]
-• [point 2]
-• [point 3]
-• [point 4]
-• [point 5]"""
+[point 1]
+[point 2]
+[point 3]
+[point 4]
+[point 5]"""
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
             content = response.text.strip()
             break
     
     if not content:
-        prompt = f"""Using the following information about {company_name}, create a five-point summary in bullet format. Each point should be one short sentence that covers key executives, leadership structure, notable positions, recent changes, and leadership style or approach. Do not include any side headings, subheadings, introductions, or conclusions in the output.
+        prompt = f"""Using the following information about {company_name}, create a five-point summary. Each point should be one short sentence that covers key executives, leadership structure, notable positions, recent changes, and leadership style or approach. Do not include any side headings, subheadings, introductions, or conclusions in the output.
 
 Format:
-• [point 1]
-• [point 2]
-• [point 3]
-• [point 4]
-• [point 5]"""
+[point 1]
+[point 2]
+[point 3]
+[point 4]
+[point 5]"""
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
         content = response.text.strip()
@@ -305,16 +305,16 @@ async def get_strategic_initiatives(client: httpx.AsyncClient, company_name: str
             tried_urls.append(url)
             # Summarize the found content
             prompt = f"""Analyze the following content about {company_name} and summarize its strategic initiatives in exactly five bullet points. Each point should be one concise sentence, and the output must not include any side headings, subheadings, introductions, or conclusions. The summary should reflect current initiatives, future plans, strategic focus areas, transformation efforts, and growth strategies.
-If any information is unavailable or missing, state "Information is currently unavailable" or provide details based on your latest knowledge..
+If any information is unavailable or missing, then provide details based on your latest knowledge..
 Content to analyze:
 {content[:5000]}
 
 Format:
-• [point 1]
-• [point 2]
-• [point 3]
-• [point 4]
-• [point 5]"""
+[point 1]
+[point 2]
+[point 3]
+[point 4]
+[point 5]"""
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
             content = response.text.strip()
@@ -324,11 +324,11 @@ Format:
         prompt = f"""Using the following information about {company_name}, create a five-point summary in bullet format. Each point should be one short sentence that covers current initiatives, future plans, strategic focus areas, transformation efforts, and growth strategies. Do not include any side headings, subheadings, introductions, or conclusions in the output.
 
 Format:
-• [point 1]
-• [point 2]
-• [point 3]
-• [point 4]
-• [point 5]"""
+[point 1]
+[point 2]
+[point 3]
+[point 4]
+[point 5]"""
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
         content = response.text.strip()
@@ -349,17 +349,17 @@ async def get_data_maturity(client: httpx.AsyncClient, company_name: str) -> Dic
         if content:
             tried_urls.append(url)
             # Summarize the found content
-            prompt = f"""Analyze the following content about {company_name} and provide a five-point summary in bullet format. Each point should be one short sentence covering data capabilities, tech stack, AI/ML initiatives, digital transformation, and data-driven decision making. Do not include any side headings, subheadings, introductions, or conclusions.
- If any information is unavailable or missing, state "Information is currently unavailable" or provide details based on your latest knowledge..
+            prompt = f"""Analyze the following content about {company_name} and provide a five-point summary. Each point should be one short sentence covering data capabilities, tech stack, AI/ML initiatives, digital transformation, and data-driven decision making. Do not include any side headings, subheadings, introductions, or conclusions.
+ If any information is unavailable or missing, then provide details based on your latest knowledge..
 Content to analyze:
 {content[:5000]}
 
 Format:
-• [point 1]
-• [point 2]
-• [point 3]
-• [point 4]
-• [point 5]
+[point 1]
+[point 2]
+[point 3]
+[point 4]
+[point 5]
 """
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
@@ -367,7 +367,7 @@ Format:
             break
     
     if not content:
-        prompt = f"""Using the following information about {company_name}, create a five-point summary in bullet format. Each point should be one short sentence covering data capabilities, tech stack, AI/ML initiatives, digital transformation, and data-driven decision making. Do not include any side headings, subheadings, introductions, or conclusions in the output.
+        prompt = f"""Using the following information about {company_name}, create a five-point summary. Each point should be one short sentence covering data capabilities, tech stack, AI/ML initiatives, digital transformation, and data-driven decision making. Do not include any side headings, subheadings, introductions, or conclusions in the output.
 
 Format:
 • [point 1]
@@ -396,30 +396,30 @@ async def get_partnerships(client: httpx.AsyncClient, company_name: str) -> Dict
             tried_urls.append(url)
             # Summarize the found content
             prompt = f"""Analyze the following content about {company_name} and provide a five-point summary in bullet format. Each point should be one short sentence covering key partnerships, strategic alliances, joint ventures, industry collaborations, and overall partnership strategy. Do not include any side headings, subheadings, introductions, or conclusions.
- If any information is unavailable or missing, state "Information is currently unavailable" or provide details based on your latest knowledge..
+ If any information is unavailable or missing, then provide details based on your latest knowledge..
 Content to analyze:
 {content[:5000]}
 
 Format:
-• [point 1]
-• [point 2]
-• [point 3]
-• [point 4]
-• [point 5]"""
+[point 1]
+[point 2]
+[point 3]
+[point 4]
+[point 5]"""
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
             content = response.text.strip()
             break
     
     if not content:
-        prompt = f"""Using the following information about {company_name}, create a five-point summary in bullet format. Each point should be one short sentence covering key partnerships, strategic alliances, joint ventures, industry collaborations, and partnership strategy. Do not include any side headings, subheadings, introductions, or conclusions in the output.
+        prompt = f"""Using the following information about {company_name}, create a five-point summary. Each point should be one short sentence covering key partnerships, strategic alliances, joint ventures, industry collaborations, and partnership strategy. Do not include any side headings, subheadings, introductions, or conclusions in the output.
  If any information is unavailable or missing, state "Information is currently unavailable.
 Format:
-• [point 1]
-• [point 2]
-• [point 3]
-• [point 4]
-• [point 5]"""
+[point 1]
+[point 2]
+[point 3]
+[point 4]
+[point 5]"""
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
         content = response.text.strip()
