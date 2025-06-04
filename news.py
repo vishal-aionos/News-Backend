@@ -9,7 +9,7 @@ import asyncio
 import httpx
 from bs4 import BeautifulSoup
 from typing import List, Dict, Any
-from py import generate_company_snapshot
+from py import generate_company_snapshot, get_executive_summary, get_key_facts, get_business_model, get_leadership, get_strategic_initiatives, get_data_maturity, get_partnerships, get_challenges_and_solutions
 
 app = FastAPI(
     title="News API",
@@ -148,7 +148,7 @@ def summarize_sync(text: str, company: str) -> str:
             return ""
             
         prompt = (
-            f"Summarize the following article into 3–4 bullet points. Focus only on concrete news and developments about {company}. "
+            f"Summarize the following article into 3–4 bullet points.I donot want sub Focus only on concrete news and developments about {company}. "
             f"Exclude any generic information, stock prices, or market analysis. "
             f"Only include specific facts, numbers, and announcements:\n\n{text[:3000]}"
         )
@@ -239,20 +239,44 @@ def generate_themes_sync(article_summaries: List[str]) -> Dict[str, str]:
         }
 
 @app.get("/news")
-async def get_company_news(company: str):
+async def get_company_news(company: str, company_url: str = None, geography: str = None):
     try:
         valid_articles = []
         all_urls = set()
         extra_queries = []
         attempt = 0
+
+        # Construct base search query with site and geography filters
+        base_query = company
+        if company_url:
+            domain = company_url.replace("https://", "").replace("http://", "").split("/")[0]
+            base_query += f" site:{domain}"
+        if geography:
+            base_query += f" {geography}"
+
+        # Enhanced search queries with more context
+        queries = [
+            f"{base_query} partnership",
+            f"{base_query} technology innovation",
+            f"{base_query} business expansion news",
+            f"{base_query} major acquisition",
+            f"{base_query} new product launch",
+            f"{base_query} digital transformation initiative",
+            f"{base_query} new office opening",
+            f"{base_query} collaboration announcement",
+            f"{base_query} new service offering",
+            f"{base_query} industry award recognition"
+        ]
+        
+
         # Keep searching and scraping until we have 10 valid articles
         while len(valid_articles) < 10 and attempt < 5:
             urls = await search_news(company, extra_queries)
             # Add more generic queries if not enough URLs
             if len(urls) < 30:
-                extra_queries.append(f"{company} business developments 2025")
-                extra_queries.append(f"{company} industry updates 2025")
-                extra_queries.append(f"{company} global expansion 2025")
+                extra_queries.append(f"{base_query} business developments 2025")
+                extra_queries.append(f"{base_query} industry updates 2025")
+                extra_queries.append(f"{base_query} global expansion 2025")
             # Add new URLs to the pool
             for url in urls:
                 all_urls.add(url)
@@ -269,20 +293,30 @@ async def get_company_news(company: str):
                 if len(valid_articles) == 10:
                     break
             attempt += 1
+
         if len(valid_articles) < 10:
             raise HTTPException(status_code=404, detail="Could not find 10 valid news articles.")
+
         # Generate themes
         all_summaries = [article["summary"] for article in valid_articles]
         loop = asyncio.get_event_loop()
         themes = await loop.run_in_executor(None, generate_themes_sync, all_summaries)
+
         # Generate company snapshot
         snapshot_result = await generate_company_snapshot(company)
+
         # Structure the response
         response = {
             "company": company,
+            "company_url": company_url,
+            "geography": geography,
             "articles": valid_articles,
             "themes": themes,
-            "company_snapshot": snapshot_result.get("snapshot", "No snapshot available")
+            "company_snapshot": {
+                "Company Snapshot": snapshot_result.get("snapshot", {}).get("Company Snapshot", {}),
+                "Initiatives": snapshot_result.get("snapshot", {}).get("Initiatives", {}),
+                "Challenges & AIonOS Opportunities": snapshot_result.get("snapshot", {}).get("Challenges & AIonOS Opportunities", {})
+            }
         }
         return JSONResponse(
             content=response,

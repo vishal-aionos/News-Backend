@@ -6,6 +6,7 @@ import httpx
 from typing import Dict, List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor
 import time
+import json
 
 # API Keys
 SERPER_API_KEY = "44c76a991b10bcccfcc6a61e08bbccc9649377d6"
@@ -22,38 +23,21 @@ AIonOS_CAPABILITIES = (
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-2.0-flash")
 
-# Define information queries with optimized search terms
-QUERIES = {
-    "Executive Summary": "company overview mission vision value proposition",
-    "Key Facts": "company overview ",
-    "Business Model & Revenue Streams": "products services",
-    "Leadership": "executives management team",
-    "Strategic Initiatives": "strategy initiatives",
-    "Data Maturity & Initiatives": "data initiatives",
-    "Partnerships": "partnerships",
-    "Company Challenges": "latest business challenges problems issues",
-    "AIonOS Solutions": "AIonOS solutions"  # This will be handled separately
-}
-
-# Create a thread pool for CPU-bound tasks
-thread_pool = ThreadPoolExecutor(max_workers=8)  # Increased workers
-
-# Create a semaphore to limit concurrent API calls
-API_SEMAPHORE = asyncio.Semaphore(5)  # Limit concurrent API calls
+# Create thread pool and semaphore
+thread_pool = ThreadPoolExecutor(max_workers=8)
+API_SEMAPHORE = asyncio.Semaphore(5)
 
 async def search_serper_async(client: httpx.AsyncClient, company_name: str, query: str, max_results: int = 3) -> List[str]:
-    """Enhanced search with multiple query variations and fallbacks."""
+    """Search using Serper API with multiple query variations."""
     try:
         async with API_SEMAPHORE:
-            # Try different query variations with more specific terms
             queries = [
                 f"{company_name} {query}",
                 f"{company_name} company {query}",
                 f"{company_name} latest {query}",
                 f"{company_name} official {query}",
                 f"{company_name} corporate {query}",
-                f"{company_name} {query} 2024",  # Add year for latest info
-                f"{company_name} {query} overview"
+                f"{company_name} {query} 2024"
             ]
             
             all_urls = []
@@ -87,7 +71,7 @@ async def search_serper_async(client: httpx.AsyncClient, company_name: str, quer
         return []
 
 async def extract_content_async(client: httpx.AsyncClient, url: str) -> Optional[str]:
-    """Enhanced content extraction with better text processing."""
+    """Extract and clean content from a URL."""
     try:
         async with API_SEMAPHORE:
             headers = {
@@ -96,28 +80,22 @@ async def extract_content_async(client: httpx.AsyncClient, url: str) -> Optional
             response = await client.get(url, headers=headers, timeout=3.0)
             response.raise_for_status()
             
-            # Use BeautifulSoup in a thread pool to avoid blocking
             loop = asyncio.get_event_loop()
             soup = await loop.run_in_executor(thread_pool, BeautifulSoup, response.text, "html.parser")
             
-            # Remove unwanted elements more efficiently
             for element in soup.find_all(['script', 'style', 'nav', 'footer', 'header', 'iframe', 'form', 'button']):
                 element.decompose()
             
-            # Extract text more efficiently with better content selection
             text_elements = []
-            
-            # First try to find main content area
             main_content = soup.find('main') or soup.find('article') or soup.find('div', class_=['content', 'main', 'article'])
             if main_content:
                 soup = main_content
             
-            # Extract text from various elements with priority
             for tag in soup.find_all(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'div']):
                 text = tag.get_text(strip=True)
                 if text and len(text) > 20 and not any(x in text.lower() for x in ['cookie', 'privacy policy', 'terms of service']):
                     text_elements.append(text)
-                    if len(text_elements) >= 15:  # Increased limit for better coverage
+                    if len(text_elements) >= 15:
                         break
             
             text = "\n".join(text_elements)
@@ -126,350 +104,431 @@ async def extract_content_async(client: httpx.AsyncClient, url: str) -> Optional
             if len(cleaned_text) < 100:
                 return None
                 
-            return cleaned_text[:5000]  # Reduced text length for faster processing
+            return cleaned_text[:5000]
     except Exception:
         return None
 
 def clean_text(text: str) -> str:
+    """Clean and normalize text."""
     if not text:
         return ""
     text = " ".join(text.split())
     text = ''.join(char for char in text if char.isprintable())
     return text.strip()
 
-async def summarize_url_content(content: str, section: str, company_name: str) -> Optional[str]:
-    """Summarize content from a single URL for a specific section."""
-    try:
-        # Create section-specific prompts
-        section_prompts = {
-            "Executive Summary": f"""Using your knowledge about {company_name}, provide a concise 3-5 sentence summary covering:
-1. What the company does
-2. Its mission and vision
-3. Its value proposition""",
-            
-            "Key Facts": f"""Using your knowledge about {company_name}, provide a concise 3-5 sentence summary covering:
-1. When it was founded
-2. Where it is headquartered
-3. Number of employees
-4. Whether it's public or private
-5. Key geographies""",
-            
-            "Business Model & Revenue Streams": f"""Using your knowledge about {company_name}, provide a concise 3-5 sentence summary covering:
-1. How the company generates revenue
-2. Its main products and services
-3. Its business model""",
-            
-            "Leadership": f"""Using your knowledge about {company_name}, provide a concise 3-5 sentence summary covering:
-1. Key executives and leaders
-2. Current leadership team
-3. Notable leadership positions""",
-            
-            "Strategic Initiatives": f"""Using your knowledge about {company_name}, provide a concise 3-5 sentence summary covering:
-1. Current strategic initiatives
-2. Future plans and strategies
-3. Major business transformations""",
-            
-            "Data Maturity & Initiatives": f"""Using your knowledge about {company_name}, provide a concise 3-5 sentence summary covering:
-1. Data capabilities and tech stack
-2. AI/ML initiatives
-3. Digital transformation efforts""",
-            
-            "Partnerships": f"""Using your knowledge about {company_name}, provide a concise 3-5 sentence summary covering:
-1. Current partnerships and collaborations
-2. Strategic alliances
-3. Notable joint ventures""",
-            
-            "Company Challenges": f"""Using your knowledge about {company_name}, provide a concise 3-5 sentence summary covering:
-1. Current business challenges
-2. Industry-specific problems
-3. Market challenges"""
-        }
-        
-        # First try with the content if available
-        if content and len(content.strip()) > 100:
-            prompt = f"{section_prompts.get(section, 'Provide a concise 3-5 sentence summary of this section.')}\n\nContent:\n{content[:2000]}"
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
-            summary = response.text.strip()
-            
-            if summary and not any(x in summary.lower() for x in ["no information", "insufficient", "unable to provide", "unfortunately"]):
-                return summary
-        
-        # Always fall back to knowledge-based response
-        prompt = f"{section_prompts.get(section, 'Provide a concise 3-5 sentence summary of this section.')}"
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
-        return response.text.strip()
-        
-    except Exception:
-        # Even in case of error, try to get a knowledge-based response
-        try:
-            prompt = f"{section_prompts.get(section, 'Provide a concise 3-5 sentence summary of this section.')}"
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
-            return response.text.strip()
-        except Exception:
-            return None
-
-async def summarize_section_content(content: str, section: str, company_name: str) -> str:
-    """Summarize a single section's content using Gemini."""
-    try:
-        prompt = f"Summarize the following content for the section '{section}' of {company_name} in 5-7 business-focused bullet points. If no relevant information, say 'No specific information available'.\nContent:\n{content[:3000]}"
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
-        summary = response.text.strip()
-        return summary
-    except Exception:
-        return "No specific information available"
-
-async def summarize_company_challenges(content: str, company_name: str) -> str:
-    """Summarize company challenges using Gemini."""
-    try:
-        prompt = f"Summarize the main business challenges faced by {company_name} in 3-5 concise bullet points. Make sure points are relevant to the company challenges:\n\n{content[:3000]}"
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
-        return response.text.strip()
-    except Exception:
-        return "No specific information available"
-
-async def generate_aionos_solutions(challenges_text: str) -> str:
-    """Generate AIonOS solutions based on company challenges."""
-    try:
-        prompt = f"""Based on your knowledge about the company, identify 3-4 key business challenges it faces based on the following context: "{challenges_text}", .
-Then, considering AIonOS's capabilities:
-{AIonOS_CAPABILITIES}
-
-Provide a concise 5 summary with one sentence for each point in the format of points without side headings for specific, actionable solutions that AIonOS can provide to address these challenges. Each solution should:
-1. Directly address one or more of the identified challenges
-2. Leverage AIonOS's specific capabilities
-3. Be practical and implementable
-4. Focus on business outcomes
-generate the response in the format of points without side headings and without intro and outro"""
-        
-
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
-        summary = response.text.strip()
-            
-        return summary
-    except Exception as e:
-        raise e
-
-async def process_section(client: httpx.AsyncClient, company_name: str, section: str, query: str) -> Tuple[str, Dict]:
-    """Process a single section: for each URL, immediately extract and summarize, return first good summary."""
-    if section == "AIonOS Solutions":
-        return section, {
-            "content": "",
-            "urls": [],
-            "summary": "No specific information available"
-        }
-
-    urls = await search_serper_async(client, company_name, query)
+async def get_executive_summary(client: httpx.AsyncClient, company_name: str) -> Dict:
+    """Get executive summary section."""
+    urls = await search_serper_async(client, company_name, "company overview mission vision value proposition")
+    content = ""
     tried_urls = []
-
+    
     for url in urls:
         content = await extract_content_async(client, url)
         if content:
             tried_urls.append(url)
-            summary = await summarize_url_content(content, section, company_name)
-            if summary and not any(x in summary.lower() for x in ["no information", "insufficient", "unable to provide", "unfortunately"]):
-                return section, {"content": content, "urls": [url], "summary": summary}
+            # Summarize the found content
+            prompt = f"""Analyze the following content about {company_name} and create a concise five-point summary in bullet format. Each point should be one short sentence covering what the company does, its mission and vision, value proposition, core business focus, and market position. If any information is unavailable or missing, state "Information is currently unavailable or provide details based on your latest knowledge."
 
-    # If no good summary found, try fallback queries
-    fallback_queries = [
-        f"{company_name} {section.lower()}",
-        f"{company_name} {section.lower()} information",
-        f"{company_name} {section.lower()} details",
-        f"{company_name} {section.lower()} overview"
-    ]
-    for fallback_query in fallback_queries:
-        fallback_urls = await search_serper_async(client, company_name, fallback_query)
-        new_urls = [url for url in fallback_urls if url not in tried_urls]
-        for url in new_urls:
-            content = await extract_content_async(client, url)
-            if content:
-                tried_urls.append(url)
-                summary = await summarize_url_content(content, section, company_name)
-                if summary and not any(x in summary.lower() for x in ["no information", "insufficient", "unable to provide", "unfortunately"]):
-                    return section, {"content": content, "urls": [url], "summary": summary}
+Content to summarize:
+{content[:5000]}
 
-    # If still no good summary, try company website
-    company_website_query = f"{company_name} official website"
-    company_urls = await search_serper_async(client, company_name, company_website_query)
-    new_urls = [url for url in company_urls if url not in tried_urls]
-    for url in new_urls:
+Format:
+• [point 1]
+• [point 2]
+• [point 3]
+• [point 4]
+• [point 5]"""
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
+            content = response.text.strip()
+            break
+    
+    if not content:
+        prompt = f"""Based on the following information about {company_name}, write a concise five-point summary in bullet format. Each point should be a single short sentence covering what the company does, its mission and vision, value proposition, core business focus, and market position. Do not include any side headings, subheadings, introductions, or conclusions.
+
+Format:
+• [point 1]
+• [point 2]
+• [point 3]
+• [point 4]
+• [point 5]"""
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
+        content = response.text.strip()
+    
+    return {
+        "summary": content,
+        "urls": tried_urls
+    }
+
+async def get_key_facts(client: httpx.AsyncClient, company_name: str) -> Dict:
+    """Get key facts section."""
+    urls = await search_serper_async(client, company_name, "company overview")
+    content = ""
+    tried_urls = []
+    
+    for url in urls:
         content = await extract_content_async(client, url)
         if content:
             tried_urls.append(url)
-            summary = await summarize_url_content(content, section, company_name)
-            if summary and not any(x in summary.lower() for x in ["no information", "insufficient", "unable to provide", "unfortunately"]):
-                return section, {"content": content, "urls": [url], "summary": summary}
+            # Summarize the found content
+            prompt = f"""Based on this content about {company_name}, extract key facts in this exact format:
+• Established: [year]
+• Headquarters: [location]
+• Number of employees: [number]
+• Public/Private: [status]
+• Key geographies: [locations]
 
-    # If all attempts fail, use LLM knowledge only
-    summary = await summarize_url_content("", section, company_name)
-    return section, {"content": "", "urls": tried_urls[:1] if tried_urls else [], "summary": summary or "No specific information available"}
+Content to analyze:
+{content[:5000]}
+ If any information is unavailable or missing, state "Information is currently unavailable" or provide details based on your latest knowledge."""
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
+            content = response.text.strip()
+            break
+    
+    if not content:
+        prompt = f"""Provide key facts about {company_name} in this exact format:
+• Established: [year]
+• Headquarters: [location]
+• Number of employees: [number]
+• Public/Private: [status]
+• Key geographies: [locations]"""
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
+        content = response.text.strip()
+    
+    return {
+        "summary": content,
+        "urls": tried_urls
+    }
+
+async def get_business_model(client: httpx.AsyncClient, company_name: str) -> Dict:
+    """Get business model section."""
+    urls = await search_serper_async(client, company_name, "products services revenue model")
+    content = ""
+    tried_urls = []
+    
+    for url in urls:
+        content = await extract_content_async(client, url)
+        if content:
+            tried_urls.append(url)
+            # Summarize the found content
+            prompt = f"""Analyze the following content about {company_name} and provide a concise five-point summary in bullet format. Each point should be one short sentence that addresses revenue streams, main products or services, business model type, target markets, and competitive advantages. Do not include any side headings, subheadings, introductions, or conclusions.
+ If any information is unavailable or missing, state"Information is currently unavailable" or provide details based on your latest knowledge.
+Content to analyze:
+{content[:5000]}
+
+Format:
+• [point 1]
+• [point 2]
+• [point 3]
+• [point 4]
+• [point 5]"""
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
+            content = response.text.strip()
+            break
+    
+    if not content:
+        prompt = f"""Based on the following information about {company_name}, provide a five-point summary in bullet format. Each point should be one short sentence covering revenue streams, main products or services, business model type, target markets, and competitive advantages. Do not include any side headings, subheadings, introductions, or conclusions in the output.
+
+Format:
+• [point 1]
+• [point 2]
+• [point 3]
+• [point 4]
+• [point 5]"""
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
+        content = response.text.strip()
+    
+    return {
+        "summary": content,
+        "urls": tried_urls
+    }
+
+async def get_leadership(client: httpx.AsyncClient, company_name: str) -> Dict:
+    """Get leadership section."""
+    urls = await search_serper_async(client, company_name, "executives management team")
+    content = ""
+    tried_urls = []
+    
+    for url in urls:
+        content = await extract_content_async(client, url)
+        if content:
+            tried_urls.append(url)
+            # Summarize the found content
+            prompt = f"""Analyze the following content about {company_name} and summarize its leadership in exactly five bullet points. Each point should be one concise sentence covering key executives, leadership structure, notable positions, recent changes, and leadership style or approach. The output must start each point with a bullet (•) and must not include any side headings, subheadings, introductions, or conclusions.
+ If any information is unavailable or missing, state "Information is currently unavailable" or provide details based on your latest knowledge..
+Content to analyze:
+{content[:5000]}
+
+Format:
+• [point 1]
+• [point 2]
+• [point 3]
+• [point 4]
+• [point 5]"""
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
+            content = response.text.strip()
+            break
+    
+    if not content:
+        prompt = f"""Using the following information about {company_name}, create a five-point summary in bullet format. Each point should be one short sentence that covers key executives, leadership structure, notable positions, recent changes, and leadership style or approach. Do not include any side headings, subheadings, introductions, or conclusions in the output.
+
+Format:
+• [point 1]
+• [point 2]
+• [point 3]
+• [point 4]
+• [point 5]"""
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
+        content = response.text.strip()
+    
+    return {
+        "summary": content,
+        "urls": tried_urls
+    }
+
+async def get_strategic_initiatives(client: httpx.AsyncClient, company_name: str) -> Dict:
+    """Get strategic initiatives section."""
+    urls = await search_serper_async(client, company_name, "strategy initiatives")
+    content = ""
+    tried_urls = []
+    
+    for url in urls:
+        content = await extract_content_async(client, url)
+        if content:
+            tried_urls.append(url)
+            # Summarize the found content
+            prompt = f"""Analyze the following content about {company_name} and summarize its strategic initiatives in exactly five bullet points. Each point should be one concise sentence, and the output must not include any side headings, subheadings, introductions, or conclusions. The summary should reflect current initiatives, future plans, strategic focus areas, transformation efforts, and growth strategies.
+If any information is unavailable or missing, state "Information is currently unavailable" or provide details based on your latest knowledge..
+Content to analyze:
+{content[:5000]}
+
+Format:
+• [point 1]
+• [point 2]
+• [point 3]
+• [point 4]
+• [point 5]"""
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
+            content = response.text.strip()
+            break
+    
+    if not content:
+        prompt = f"""Using the following information about {company_name}, create a five-point summary in bullet format. Each point should be one short sentence that covers current initiatives, future plans, strategic focus areas, transformation efforts, and growth strategies. Do not include any side headings, subheadings, introductions, or conclusions in the output.
+
+Format:
+• [point 1]
+• [point 2]
+• [point 3]
+• [point 4]
+• [point 5]"""
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
+        content = response.text.strip()
+    
+    return {
+        "summary": content,
+        "urls": tried_urls
+    }
+
+async def get_data_maturity(client: httpx.AsyncClient, company_name: str) -> Dict:
+    """Get data maturity section."""
+    urls = await search_serper_async(client, company_name, "data initiatives tech stack")
+    content = ""
+    tried_urls = []
+    
+    for url in urls:
+        content = await extract_content_async(client, url)
+        if content:
+            tried_urls.append(url)
+            # Summarize the found content
+            prompt = f"""Analyze the following content about {company_name} and provide a five-point summary in bullet format. Each point should be one short sentence covering data capabilities, tech stack, AI/ML initiatives, digital transformation, and data-driven decision making. Do not include any side headings, subheadings, introductions, or conclusions.
+ If any information is unavailable or missing, state "Information is currently unavailable" or provide details based on your latest knowledge..
+Content to analyze:
+{content[:5000]}
+
+Format:
+• [point 1]
+• [point 2]
+• [point 3]
+• [point 4]
+• [point 5]
+"""
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
+            content = response.text.strip()
+            break
+    
+    if not content:
+        prompt = f"""Using the following information about {company_name}, create a five-point summary in bullet format. Each point should be one short sentence covering data capabilities, tech stack, AI/ML initiatives, digital transformation, and data-driven decision making. Do not include any side headings, subheadings, introductions, or conclusions in the output.
+
+Format:
+• [point 1]
+• [point 2]
+• [point 3]
+• [point 4]
+• [point 5]"""
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
+        content = response.text.strip()
+    
+    return {
+        "summary": content,
+        "urls": tried_urls
+    }
+
+async def get_partnerships(client: httpx.AsyncClient, company_name: str) -> Dict:
+    """Get partnerships section."""
+    urls = await search_serper_async(client, company_name, "partnerships collaborations")
+    content = ""
+    tried_urls = []
+    
+    for url in urls:
+        content = await extract_content_async(client, url)
+        if content:
+            tried_urls.append(url)
+            # Summarize the found content
+            prompt = f"""Analyze the following content about {company_name} and provide a five-point summary in bullet format. Each point should be one short sentence covering key partnerships, strategic alliances, joint ventures, industry collaborations, and overall partnership strategy. Do not include any side headings, subheadings, introductions, or conclusions.
+ If any information is unavailable or missing, state "Information is currently unavailable" or provide details based on your latest knowledge..
+Content to analyze:
+{content[:5000]}
+
+Format:
+• [point 1]
+• [point 2]
+• [point 3]
+• [point 4]
+• [point 5]"""
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
+            content = response.text.strip()
+            break
+    
+    if not content:
+        prompt = f"""Using the following information about {company_name}, create a five-point summary in bullet format. Each point should be one short sentence covering key partnerships, strategic alliances, joint ventures, industry collaborations, and partnership strategy. Do not include any side headings, subheadings, introductions, or conclusions in the output.
+ If any information is unavailable or missing, state "Information is currently unavailable.
+Format:
+• [point 1]
+• [point 2]
+• [point 3]
+• [point 4]
+• [point 5]"""
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
+        content = response.text.strip()
+    
+    return {
+        "summary": content,
+        "urls": tried_urls
+    }
+
+async def get_challenges_and_solutions(client: httpx.AsyncClient, company_name: str) -> Dict:
+    """Get challenges and AIonOS solutions section."""
+    urls = await search_serper_async(client, company_name, "business challenges problems issues")
+    content = ""
+    tried_urls = []
+    
+    for url in urls:
+        content = await extract_content_async(client, url)
+        if content:
+            tried_urls.append(url)
+            # Summarize the found content
+            prompt = f"""Based on this content about {company_name}'s challenges:
+{content[:5000]}
+
+And considering AIonOS's capabilities:
+{AIonOS_CAPABILITIES}
+
+Provide three distinct entries. For each:
+Clearly state a specific Challenge the company is facing (business, industry-specific, or market-related) in one short sentence.
+Immediately follow it with a corresponding AIonOS Solution in one short sentence, describing how AIonOS can address that specific challenge.
+
+Format the output exactly as:
+Challenge: [One short sentence]
+AIonOS Solution: [One short sentence]
+
+Challenge: [One short sentence]
+AIonOS Solution: [One short sentence]
+
+Challenge: [One short sentence]
+AIonOS Solution: [One short sentence]"""
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
+            content = response.text.strip()
+            break
+    
+    if not content:
+        prompt = f"""Based on your knowledge about {company_name}, provide three distinct entries. For each:
+Clearly state a specific Challenge the company is facing (business, industry-specific, or market-related) in one short sentence.
+Immediately follow it with a corresponding AIonOS Solution in one short sentence, describing how AIonOS can address that specific challenge.
+
+Format the output exactly as:
+Challenge: [One short sentence]
+AIonOS Solution: [One short sentence]
+
+Challenge: [One short sentence]
+AIonOS Solution: [One short sentence]
+
+Challenge: [One short sentence]
+AIonOS Solution: [One short sentence]"""
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
+        content = response.text.strip()
+    
+    return {
+        "summary": content,
+        "urls": tried_urls
+    }
 
 async def generate_company_snapshot(company_name: str) -> dict:
-    """Main function to generate company snapshot in the required JSON format."""
+    """Main function to generate company snapshot."""
     if not company_name.strip():
         return {"error": "Please provide a valid company name."}
     
     start_time = time.time()
-    section_content = {}
     
     async with httpx.AsyncClient(timeout=5.0) as client:
         # Process all sections in parallel
-        tasks = []
-        for section, query in QUERIES.items():
-            if section != "AIonOS Solutions":
-                tasks.append(process_section(client, company_name, section, query))
+        tasks = [
+            get_executive_summary(client, company_name),
+            get_key_facts(client, company_name),
+            get_business_model(client, company_name),
+            get_leadership(client, company_name),
+            get_strategic_initiatives(client, company_name),
+            get_data_maturity(client, company_name),
+            get_partnerships(client, company_name),
+            get_challenges_and_solutions(client, company_name)
+        ]
         
         results = await asyncio.gather(*tasks)
-        section_content = dict(results)
-    
-    if not any(v["content"] for v in section_content.values()):
-        return {"error": "No content was collected for summarization. Please try a different company name."}
-    
-    snapshot = await summarize_snapshot_with_section_summaries(section_content, company_name)
+        
+        # Structure the response
+        snapshot = {
+            "Company Snapshot": {
+                "Executive Summary": results[0],
+                "Key Facts": results[1],
+                "Business Model & Revenue Streams": results[2],
+                "Leadership": results[3]
+            },
+            "Initiatives": {
+                "Strategic Initiatives": results[4],
+                "Data Maturity & Initiatives": results[5],
+                "Partnerships": results[6]
+            },
+            "Challenges & AIonOS Opportunities": results[7]
+        }
     
     end_time = time.time()
     print(f"Total processing time: {end_time - start_time:.2f} seconds")
     
     return {"snapshot": snapshot}
-
-async def summarize_snapshot_with_section_summaries(section_content: dict, company_name: str) -> dict:
-    result = {"Company Snapshot": {}, "Initiatives": {}}
-    company_sections = [
-        "Executive Summary",
-        "Key Facts",
-        "Business Model & Revenue Streams",
-        "Leadership"
-    ]
-    initiative_sections = [
-        "Strategic Initiatives",
-        "Data Maturity & Initiatives",
-        "Partnerships",
-        "Company Challenges"
-    ]
-    # Process regular sections
-    for section in company_sections:
-        result["Company Snapshot"][section] = {
-            "summary": section_content.get(section, {}).get("summary", "No specific information available"),
-            "urls": section_content.get(section, {}).get("urls", [])
-        }
-    # Process initiative sections
-    for section in initiative_sections:
-        result["Initiatives"][section] = {
-            "summary": section_content.get(section, {}).get("summary", "No specific information available"),
-            "urls": section_content.get(section, {}).get("urls", [])
-        }
-    # Handle AIonOS Solutions separately
-    challenges_text = section_content.get("Company Challenges", {}).get("summary", "")
-    if challenges_text and "no specific information" not in challenges_text.lower():
-        aionos_solutions = await generate_aionos_solutions(challenges_text)
-        result["Initiatives"]["AIonOS Solutions"] = {
-            "summary": aionos_solutions,
-            "urls": []
-        }
-    else:
-        result["Initiatives"]["AIonOS Solutions"] = {
-            "summary": "No specific information available",
-            "urls": []
-        }
-    return result
-
-def create_error_response() -> Dict[str, str]:
-    return {
-        "Executive Summary": "Error processing company information",
-        "Key Facts": "Error processing company information",
-        "Business Model & Revenue Streams": "Error processing company information",
-        "Leadership": "Error processing company information",
-        "Strategic Initiatives": "Error processing company information",
-        "Data Maturity & Initiatives": "Error processing company information",
-        "Partnerships": "Error processing company information"
-    }
-
-async def summarize_snapshot(section_content: dict, company_name: str) -> dict:
-    try:
-        # Concatenate all content for the prompt, but keep section mapping
-        all_text = ""
-        for section, data in section_content.items():
-            if data["content"]:
-                all_text += f"\n\n--- {section} ---\n{data['content']}"
-
-        truncated_text = all_text[:20000]
-        prompt = f"""Based on the following content about {company_name}, generate a detailed company snapshot in JSON format with these exact keys and their corresponding information:
-        ensure the responses for each section are in 4 to 5 meaningful and authentic consice ponts and business-focused
-        
-{{
-{{
-    "Executive Summary": "What does the company do? and What is its mission, vision and value proposition? (Use bullet points)",
-    "Key Facts": "When was it founded? Where is it headquartered(location/place)? How many employees? Is it public or private? What are its key geographies? (Use bullet points)",
-    "Business Model & Revenue Streams": "How does the company generate revenue? Which products or services drive the business? (Use bullet points)",
-    "Leadership": "Who are the key executives and leaders? (Use bullet points)",
-}}
-Initiatives:
-{{    
-    "Strategic Initiatives": "What are the company's strategic initiatives? (Use bullet points)",
-    "Data Maturity & Initiatives": "How mature are the company's data stack and tech capabilites?What tools, dashboards and AI/ML use-cases power decision-making?(Use bullet points)",
-    "Partnerships": "What are the company's partnerships? (Use bullet points)",
-    
-}}
-}}
-Content to analyze:
-{truncated_text}
-
-Instructions:
-1. Generate a JSON object with the exact keys shown above
-2. For each key, provide summary based on the content make sure the information is related to the company.
-3. If information for a section is not found, use "No specific information available"
-4. Use bullet points for every section (start each point with '•')
-5. Return ONLY the JSON object, no additional text"""
-        import re
-        import json
-        # Run Gemini in a thread pool to avoid blocking
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
-        response_text = response.text.strip()
-        response_text = response_text.replace('```json', '').replace('```', '')
-        
-        json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
-        if json_match:
-            json_str = json_match.group(0)
-            try:
-                summary = json.loads(json_str)
-                # Build the result with top-level keys 'Company Snapshot' and 'Initiatives'
-                result = {"Company Snapshot": {}, "Initiatives": {}}
-                company_sections = [
-                    "Executive Summary",
-                    "Key Facts",
-                    "Business Model & Revenue Streams",
-                    "Leadership"
-                ]
-                initiative_sections = [
-                    "Strategic Initiatives",
-                    "Data Maturity & Initiatives",
-                    "Partnerships",
-                    
-                ]
-                # Fill Company Snapshot
-                for section in company_sections:
-                    result["Company Snapshot"][section] = {
-                        "summary": summary.get("Company Snapshot", {}).get(section, ""),
-                        "urls": section_content.get(section, {}).get("urls", [])
-                    }
-                # Fill Initiatives
-                for section in initiative_sections:
-                    result["Initiatives"][section] = {
-                        "summary": summary.get("Initiatives", {}).get(section, ""),
-                        "urls": section_content.get(section, {}).get("urls", [])
-                    }
-                return result
-            except json.JSONDecodeError:
-                return create_error_response()
-        return create_error_response()
-    except Exception:
-        return create_error_response()
 
 async def main():
     """Main function to handle terminal input and display results."""
@@ -481,7 +540,6 @@ async def main():
         return
     
     print(f"\n🔍 Generating snapshot for {company_name}...\n")
-    start_time = time.time()
     
     try:
         result = await generate_company_snapshot(company_name)
@@ -516,8 +574,15 @@ async def main():
                 for url in data["urls"]:
                     print(f"• {url}")
         
-        end_time = time.time()
-        print(f"\n\n⏱️ Total processing time: {end_time - start_time:.2f} seconds")
+        # Print Challenges & AIonOS Opportunities
+        print("\n\n🎯 CHALLENGES & AIonOS OPPORTUNITIES")
+        print("=" * 50)
+        data = snapshot["Challenges & AIonOS Opportunities"]
+        print(data["summary"])
+        if data["urls"]:
+            print("\nSources:")
+            for url in data["urls"]:
+                print(f"• {url}")
         
     except Exception as e:
         print(f"❌ An error occurred: {str(e)}")
