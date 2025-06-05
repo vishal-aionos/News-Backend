@@ -10,7 +10,7 @@ import json
 
 # API Keys
 SERPER_API_KEY = "44c76a991b10bcccfcc6a61e08bbccc9649377d6"
-GEMINI_API_KEY = "AIzaSyAgKdmYgZg-_jVt9wDqDgKPd2ow_OKGrgU"
+GEMINI_API_KEY = "AIzaSyAt_c0xgaXGg9H4oFX0YUqsQuhnV4gi7BY"
 
 # AIonOS Capabilities
 AIonOS_CAPABILITIES = (
@@ -173,6 +173,7 @@ async def get_key_facts(client: httpx.AsyncClient, company_name: str) -> Dict:
             tried_urls.append(url)
             # Summarize the found content
             prompt = f"""Based on this content about {company_name}, extract key facts in this exact format:
+If any information is unavailable or missing from the content, fill it in using your latest knowledge without stating that the information was missing or inferred — just give the final answer.
 • Established: [year]
 • Headquarters: [location]
 • Number of employees: [number]
@@ -181,7 +182,7 @@ async def get_key_facts(client: httpx.AsyncClient, company_name: str) -> Dict:
 
 Content to analyze:
 {content[:5000]}
- If any information is unavailable or missing, then provide details based on your latest knowledge."""
+ """
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
             content = response.text.strip()
@@ -215,9 +216,9 @@ async def get_business_model(client: httpx.AsyncClient, company_name: str) -> Di
             tried_urls.append(url)
             # Summarize the found content
             prompt = f"""Analyze the following content about {company_name} and provide a concise five-point summary. Each point should be one short sentence that addresses revenue streams, main products or services, business model type, target markets, and competitive advantages. Do not include any side headings, subheadings, introductions, or conclusions.
- If any information is unavailable or missing provide details based on your latest knowledge.
+If any information is unavailable or missing from the content, fill it in using your latest knowledge without stating that the information was missing or inferred — just give the final answer.
 Content to analyze:
-{content[:5000]}
+{content}
 
 Format:
 [point 1]
@@ -259,17 +260,18 @@ async def get_leadership(client: httpx.AsyncClient, company_name: str) -> Dict:
         if content:
             tried_urls.append(url)
             # Summarize the found content
-            prompt = f"""Analyze the following content about {company_name} and summarize its leadership in exactly five bullet points. Each point should be one concise sentence covering key executives, leadership structure, notable positions, recent changes, and leadership style or approach. The output must start each point with a bullet (•) and must not include any side headings, subheadings, introductions, or conclusions.
-If any information is unavailable or missing, then provide details based on your latest knowledge..
-Content to analyze:
-{content[:5000]}
+            prompt = f"""Review the following content about {company_name} and extract key facts in the below format. Begin each point with a bullet (•) and do not include any headings, introductions, or additional commentary.
+If any information is unavailable or missing from the content, fill it in using your latest knowledge without stating that the information was missing or inferred — just give the final answer.
 
 Format:
-[point 1]
-[point 2]
-[point 3]
-[point 4]
-[point 5]"""
+• CEO / Managing Director: [Full Name]
+• Founder(s): [Full Name(s)]
+• Chairperson: [Full Name]
+• Board of Directors:[Name  & Role/Title]
+• Recent Changes: [short sentence] 
+
+Content to analyze:
+{content[:10000]}"""
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
             content = response.text.strip()
@@ -305,9 +307,9 @@ async def get_strategic_initiatives(client: httpx.AsyncClient, company_name: str
             tried_urls.append(url)
             # Summarize the found content
             prompt = f"""Analyze the following content about {company_name} and summarize its strategic initiatives in exactly five bullet points. Each point should be one concise sentence, and the output must not include any side headings, subheadings, introductions, or conclusions. The summary should reflect current initiatives, future plans, strategic focus areas, transformation efforts, and growth strategies.
-If any information is unavailable or missing, then provide details based on your latest knowledge..
+If any information is unavailable or missing from the content, fill it in using your latest knowledge without stating that the information was missing or inferred — just give the final answer.
 Content to analyze:
-{content[:5000]}
+{content}
 
 Format:
 [point 1]
@@ -350,7 +352,7 @@ async def get_data_maturity(client: httpx.AsyncClient, company_name: str) -> Dic
             tried_urls.append(url)
             # Summarize the found content
             prompt = f"""Analyze the following content about {company_name} and provide a five-point summary. Each point should be one short sentence covering data capabilities, tech stack, AI/ML initiatives, digital transformation, and data-driven decision making. Do not include any side headings, subheadings, introductions, or conclusions.
- If any information is unavailable or missing, then provide details based on your latest knowledge..
+If any information is unavailable or missing from the content, fill it in using your latest knowledge without stating that the information was missing or inferred — just give the final answer.
 Content to analyze:
 {content[:5000]}
 
@@ -396,7 +398,7 @@ async def get_partnerships(client: httpx.AsyncClient, company_name: str) -> Dict
             tried_urls.append(url)
             # Summarize the found content
             prompt = f"""Analyze the following content about {company_name} and provide a five-point summary in bullet format. Each point should be one short sentence covering key partnerships, strategic alliances, joint ventures, industry collaborations, and overall partnership strategy. Do not include any side headings, subheadings, introductions, or conclusions.
- If any information is unavailable or missing, then provide details based on your latest knowledge..
+If any information is unavailable or missing from the content, fill it in using your latest knowledge without stating that the information was missing or inferred — just give the final answer.
 Content to analyze:
 {content[:5000]}
 
@@ -413,7 +415,7 @@ Format:
     
     if not content:
         prompt = f"""Using the following information about {company_name}, create a five-point summary. Each point should be one short sentence covering key partnerships, strategic alliances, joint ventures, industry collaborations, and partnership strategy. Do not include any side headings, subheadings, introductions, or conclusions in the output.
- If any information is unavailable or missing, state "Information is currently unavailable.
+If any information is unavailable or missing from the content, fill it in using your latest knowledge without stating that the information was missing or inferred — just give the final answer.
 Format:
 [point 1]
 [point 2]
@@ -432,6 +434,7 @@ Format:
 async def get_challenges_and_solutions(client: httpx.AsyncClient, company_name: str) -> Dict:
     """Get challenges and AIonOS solutions section."""
     urls = await search_serper_async(client, company_name, "business challenges problems issues")
+    
     content = ""
     tried_urls = []
     
@@ -489,46 +492,55 @@ AIonOS Solution: [One short sentence]"""
 
 async def generate_company_snapshot(company_name: str) -> dict:
     """Main function to generate company snapshot."""
-    if not company_name.strip():
-        return {"error": "Please provide a valid company name."}
-    
-    start_time = time.time()
-    
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        # Process all sections in parallel
-        tasks = [
-            get_executive_summary(client, company_name),
-            get_key_facts(client, company_name),
-            get_business_model(client, company_name),
-            get_leadership(client, company_name),
-            get_strategic_initiatives(client, company_name),
-            get_data_maturity(client, company_name),
-            get_partnerships(client, company_name),
-            get_challenges_and_solutions(client, company_name)
-        ]
+    try:
+        # Clean and validate company name
+        company_name = company_name.strip()
+        if not company_name:
+            return {"error": "Please provide a valid company name."}
         
-        results = await asyncio.gather(*tasks)
+        # Remove any special characters that might cause format issues
+        company_name = ''.join(c for c in company_name if c.isalnum() or c.isspace())
         
-        # Structure the response
-        snapshot = {
-            "Company Snapshot": {
-                "Executive Summary": results[0],
-                "Key Facts": results[1],
-                "Business Model & Revenue Streams": results[2],
-                "Leadership": results[3]
-            },
-            "Initiatives": {
-                "Strategic Initiatives": results[4],
-                "Data Maturity & Initiatives": results[5],
-                "Partnerships": results[6]
-            },
-            "Challenges & AIonOS Opportunities": results[7]
-        }
-    
-    end_time = time.time()
-    print(f"Total processing time: {end_time - start_time:.2f} seconds")
-    
-    return {"snapshot": snapshot}
+        start_time = time.time()
+        
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            # Process all sections in parallel
+            tasks = [
+                get_executive_summary(client, company_name),
+                get_key_facts(client, company_name),
+                get_business_model(client, company_name),
+                get_leadership(client, company_name),
+                get_strategic_initiatives(client, company_name),
+                get_data_maturity(client, company_name),
+                get_partnerships(client, company_name),
+                get_challenges_and_solutions(client, company_name)
+            ]
+            
+            results = await asyncio.gather(*tasks)
+            
+            # Structure the response
+            snapshot = {
+                "Company Snapshot": {
+                    "Executive Summary": results[0],
+                    "Key Facts": results[1],
+                    "Business Model & Revenue Streams": results[2],
+                    "Leadership": results[3]
+                },
+                "Initiatives": {
+                    "Strategic Initiatives": results[4],
+                    "Data Maturity & Initiatives": results[5],
+                    "Partnerships": results[6]
+                },
+                "Challenges & AIonOS Opportunities": results[7]
+            }
+        
+        end_time = time.time()
+        print(f"Total processing time: {end_time - start_time:.2f} seconds")
+        
+        return {"snapshot": snapshot}
+    except Exception as e:
+        print(f"Error in generate_company_snapshot: {str(e)}")
+        return {"error": str(e)}
 
 async def main():
     """Main function to handle terminal input and display results."""

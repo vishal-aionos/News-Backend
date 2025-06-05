@@ -147,11 +147,13 @@ def summarize_sync(text: str, company: str) -> str:
         if relevance_score < 3:  # Minimum threshold for relevance
             return ""
             
-        prompt = (
-            f"Summarize the following article into 3–4 bullet points.I donot want sub Focus only on concrete news and developments about {company}. "
-            f"Exclude any generic information, stock prices, or market analysis. "
-            f"Only include specific facts, numbers, and announcements:\n\n{text[:3000]}"
-        )
+        prompt = f"""Summarize the following article into 4 to 5 bullet points, with each point written as one concise sentence.
+Focus only on concrete news and developments specifically about {company}.
+Do not include any introduction, conclusion, subheadings, or labels like “point 1”.
+Exclude all stock prices, market analysis, and generic background information.
+Return only the bullet points in plain text, one per line:
+
+{text[:5000]}"""
         response = model.generate_content(prompt)
         summary = response.text.strip()
         
@@ -247,12 +249,15 @@ async def get_company_news(company: str, company_url: str = None, geography: str
         attempt = 0
 
         # Construct base search query with site and geography filters
-        base_query = company
+        base_query = company.strip()
         if company_url:
-            domain = company_url.replace("https://", "").replace("http://", "").split("/")[0]
-            base_query += f" site:{domain}"
+            try:
+                domain = company_url.replace("https://", "").replace("http://", "").split("/")[0]
+                base_query += f" site:{domain}"
+            except:
+                pass
         if geography:
-            base_query += f" {geography}"
+            base_query += f" {geography.strip()}"
 
         # Enhanced search queries with more context
         queries = [
