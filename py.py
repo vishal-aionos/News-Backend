@@ -7,6 +7,9 @@ from typing import Dict, List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor
 import time
 import json
+import fitz  # PyMuPDF
+import io
+import aiohttp
 
 # API Keys
 SERPER_API_KEY = "44c76a991b10bcccfcc6a61e08bbccc9649377d6"
@@ -115,6 +118,23 @@ def clean_text(text: str) -> str:
     text = " ".join(text.split())
     text = ''.join(char for char in text if char.isprintable())
     return text.strip()
+
+async def extract_pdf_content(url: str) -> Optional[str]:
+    """Extract text content from a PDF URL."""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                if response.status == 200:
+                    pdf_data = await response.read()
+                    pdf_document = fitz.open(stream=pdf_data, filetype="pdf")
+                    text = ""
+                    for page in pdf_document:
+                        text += page.get_text()
+                    pdf_document.close()
+                    return text[:10000]  # Limit text length
+    except Exception as e:
+        print(f"Error extracting PDF content: {str(e)}")
+    return None
 
 async def get_executive_summary(client: httpx.AsyncClient, company_name: str) -> Dict:
     """Get executive summary section."""
@@ -433,60 +453,94 @@ Format:
 
 async def get_challenges_and_solutions(client: httpx.AsyncClient, company_name: str) -> Dict:
     """Get challenges and AIonOS solutions section."""
-    urls = await search_serper_async(client, company_name, "business challenges problems issues")
-    
-    content = ""
+    final_output = []
     tried_urls = []
     
-    for url in urls:
+    # Search for challenges from web
+    web_urls = await search_serper_async(client, company_name, "latest challenges", max_results=3)
+    
+    # Process web content
+    for url in web_urls:
         content = await extract_content_async(client, url)
         if content:
             tried_urls.append(url)
-            # Summarize the found content
             prompt = f"""Based on this content about {company_name}'s challenges:
-{content[:5000]}
+{content}
 
 And considering AIonOS's capabilities:
 {AIonOS_CAPABILITIES}
 
-Provide three distinct entries. For each:
-Clearly state a specific Challenge the company is facing (business, industry-specific, or market-related) in one short sentence.
-Immediately follow it with a corresponding AIonOS Solution in one short sentence, describing how AIonOS can address that specific challenge.
+Extract up to two distinct challenges and provide corresponding AIonOS solutions. For each:
+Clearly state a specific Challenge the company is facing in one short sentence.
+Immediately follow it with a corresponding AIonOS Solution be more creative to solve the challenge for specific in one short sentence.
 
-Format the output exactly as:
+Format each entry exactly as:
 Challenge: [One short sentence]
 AIonOS Solution: [One short sentence]
+URL: {url}
 
 Challenge: [One short sentence]
 AIonOS Solution: [One short sentence]
+URL: {url}"""
 
-Challenge: [One short sentence]
-AIonOS Solution: [One short sentence]"""
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
-            content = response.text.strip()
-            break
+            challenges = response.text.strip()
+            if challenges:
+                final_output.append(challenges)
     
-    if not content:
-        prompt = f"""Based on your knowledge about {company_name}, provide three distinct entries. For each:
-Clearly state a specific Challenge the company is facing (business, industry-specific, or market-related) in one short sentence.
-Immediately follow it with a corresponding AIonOS Solution in one short sentence, describing how AIonOS can address that specific challenge.
+    # Search for annual report PDFs
+    pdf_urls = await search_serper_async(client, company_name, "latest annual report filetype:pdf", max_results=1)
+    
+    # Process PDF content
+    for url in pdf_urls:
+        content = await extract_pdf_content(url)
+        if content:
+            tried_urls.append(url)
+            prompt = f"""Based on this annual report content about {company_name}'s challenges:
+{content}
+
+And considering AIonOS's capabilities:
+{AIonOS_CAPABILITIES}
+
+Extract up to two distinct challenges and provide corresponding AIonOS solutions. For each:
+Clearly state a specific Challenge the company is facing in one short sentence.
+Immediately follow it with a corresponding AIonOS Solution in one short sentence.
+
+Format each entry exactly as:
+Challenge: [One short sentence]
+AIonOS Solution: [One short sentence]
+URL: {url}
+
+Challenge: [One short sentence]
+AIonOS Solution: [One short sentence]
+URL: {url}"""
+
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
+            challenges = response.text.strip()
+            if challenges:
+                final_output.append(challenges)
+    
+    if not final_output:
+        # Fallback to general knowledge if no content found
+        prompt = f"""Based on your knowledge about {company_name}, provide two distinct entries. For each:
+Clearly state a specific Challenge the company is facing in one short sentence.
+Immediately follow it with a corresponding AIonOS Solution in one short sentence.
 
 Format the output exactly as:
 Challenge: [One short sentence]
 AIonOS Solution: [One short sentence]
 
 Challenge: [One short sentence]
-AIonOS Solution: [One short sentence]
-
-Challenge: [One short sentence]
 AIonOS Solution: [One short sentence]"""
+        
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(thread_pool, model.generate_content, prompt)
-        content = response.text.strip()
+        final_output.append(response.text.strip())
     
     return {
-        "summary": content,
+        "summary": "\n\n".join(final_output),
         "urls": tried_urls
     }
 

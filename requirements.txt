@@ -9,3 +9,5 @@ asyncio==3.4.3
 pydantic==2.6.1 
 lxml==5.1.0
 lxml[html_clean]==5.1.0 
+aiohttp
+PyMuPDF
