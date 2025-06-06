@@ -8,8 +8,9 @@ import uvicorn
 import asyncio
 import httpx
 from bs4 import BeautifulSoup
-from typing import List, Dict, Any
-from py import generate_company_snapshot, get_executive_summary, get_key_facts, get_business_model, get_leadership, get_strategic_initiatives, get_data_maturity, get_partnerships, get_challenges_and_solutions
+from typing import List, Dict, Any, Optional
+from py import generate_company_snapshot, get_executive_summary, get_key_facts, get_business_model, get_leadership, get_strategic_initiatives, get_data_maturity, get_partnerships, get_challenges_and_solutions, AIonOS_CAPABILITIES
+from battle_card import get_what_we_do, get_company_offerings, get_quick_facts, get_news_snapshot, get_pic_overview, get_data_maturity_and_initiatives
 
 app = FastAPI(
     title="News API",
@@ -149,7 +150,7 @@ def summarize_sync(text: str, company: str) -> str:
             
         prompt = f"""Summarize the following article into 4 to 5 bullet points, with each point written as one concise sentence.
 Focus only on concrete news and developments specifically about {company}.
-Do not include any introduction, conclusion, subheadings, or labels like “point 1”.
+Do not include any introduction, conclusion, subheadings, or labels like "point 1".
 Exclude all stock prices, market analysis, and generic background information.
 Return only the bullet points in plain text, one per line:
 
@@ -310,6 +311,17 @@ async def get_company_news(company: str, company_url: str = None, geography: str
         # Generate company snapshot
         snapshot_result = await generate_company_snapshot(company)
 
+        # Generate battle card data
+        async with httpx.AsyncClient() as client:
+            battle_card_data = {
+                "what_we_do": await get_what_we_do(client, company),
+                "company_offerings": await get_company_offerings(client, company),
+                "quick_facts": await get_quick_facts(client, company),
+                "news_snapshot": await get_news_snapshot(client, company, themes),
+                "pic_overview": await get_pic_overview(client, company),
+                "data_maturity_and_initiatives": await get_data_maturity_and_initiatives(client, company)
+            }
+
         # Structure the response
         response = {
             "company": company,
@@ -321,7 +333,8 @@ async def get_company_news(company: str, company_url: str = None, geography: str
                 "Company Snapshot": snapshot_result.get("snapshot", {}).get("Company Snapshot", {}),
                 "Initiatives": snapshot_result.get("snapshot", {}).get("Initiatives", {}),
                 "Challenges & AIonOS Opportunities": snapshot_result.get("snapshot", {}).get("Challenges & AIonOS Opportunities", {})
-            }
+            },
+            "battle_card": battle_card_data
         }
         return JSONResponse(
             content=response,
