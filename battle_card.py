@@ -150,49 +150,39 @@ async def get_pic_overview(client: httpx.AsyncClient, company_name: str) -> Batt
     """Retrieves data for the 'PIC OVERVIEW' section from leadership information."""
     return {"message": "PIC overview information currently unavailable."}
 
-async def get_challenges_and_opportunities(client: httpx.AsyncClient, company_name: str) -> BattleCardSectionData:
-    """Retrieves data for the 'CHALLENGES & AIONOS OPPORTUNITIES' section."""
+async def get_challenges_and_opportunities(client: httpx.AsyncClient, company_name: str, challenges_snapshot_data: Dict[str, Any]) -> BattleCardSectionData:
+    """Takes challenges and AIonOS opportunities snapshot data, summarizes it into concise points, and returns the summary."""
     try:
-        # Call the get_challenges_and_solutions function from py.py
-        challenges_data = await get_challenges_and_solutions(client, company_name)
+        # Extract the summary text from the snapshot data
+        # Based on the JSON, the summary is under the 'summary' key
+        summary_text = challenges_snapshot_data.get("summary", "")
         
-        challenges_list = []
-        current_entry = {}
+        if not summary_text or not summary_text.strip():
+            return {"message": "Challenges and AIonOS opportunities summary not available."}
         
-        # Parse the summary string into a list of challenge dictionaries
-        for line in challenges_data.get("summary", "").split('\n'):
-            line = line.strip()
-            if not line:
-                continue
-            
-            if line.startswith('Challenge:'):
-                if current_entry:
-                    challenges_list.append(current_entry)
-                current_entry = {'challenge': line.replace('Challenge:', '').strip(), 'solution': ''}
-            elif line.startswith('AIonOS Solution:'):
-                current_entry['solution'] = line.replace('AIonOS Solution:', '').strip()
-        
-        if current_entry:
-            challenges_list.append(current_entry)
-        
-        # Select the top 3 challenges (assuming the first 3 are the most relevant/business-related)
-        top_3_challenges = challenges_list[:3]
-        
-        # Format the selected challenges as requested
-        formatted_challenges = []
-        for challenge_entry in top_3_challenges:
-            formatted_entry = f"challenge: {challenge_entry.get('challenge', 'No challenge statement')}\nsolution: {challenge_entry.get('solution', 'No solution provided')}"
-            formatted_challenges.append(formatted_entry)
-        
-        if not formatted_challenges:
-             return {"challenges": ["No challenges and opportunities found."]}
+        # Use Gemini to summarize the text into concise bullet points
+        prompt = f"""Summarize the following text into concise bullet points, each combining a company-specific challenge with how AIonOS can address it. Focus only on challenges faced by the company (not industry-wide or general ones), and pair each challenge directly with a solution enabled by AIonOS. Each bullet point should clearly state the challenge and its corresponding AIonOS capability.
 
-        # Return the formatted challenges
-        return {"challenges": formatted_challenges}
+Text to Summarize:
+{summary_text}
 
+Provide the output as a list of concise bullet points, one per line."""
+        
+        loop = asyncio.get_event_loop()
+        summarized_response = await loop.run_in_executor(None, model.generate_content, prompt)
+        
+        # Split the response into points and clean them
+        concise_points = [point.strip() for point in summarized_response.text.strip().split('\n') if point.strip()]
+
+        if not concise_points:
+            return {"message": "Could not generate concise summary for challenges and opportunities."}
+        
+        # Return the concise summary points
+        return {"summary_points": concise_points}
+        
     except Exception as e:
-        print(f"Error getting 'CHALLENGES & AIONOS OPPORTUNITIES' data for {company_name}: {e}")
-        return {"challenges": ["Error retrieving challenges and opportunities."]}
+        print(f"Error summarizing challenges and opportunities for {company_name}: {e}")
+        return {"message": f"Error retrieving or summarizing challenges and opportunities: {e}"}
 
 async def get_industry_overview(client: httpx.AsyncClient, company_name: str) -> BattleCardSectionData:
     """Retrieves data for the 'INDUSTRY OVERVIEW' section."""
@@ -259,7 +249,7 @@ async def generate_battle_card(company_name: str) -> Dict[str, BattleCardSection
         quick_facts_data = await get_quick_facts(client, company_name)
         news_snapshot_data = await get_news_snapshot(client, company_name, {})
         pic_overview_data = await get_pic_overview(client, company_name)
-        challenges_data = await get_challenges_and_opportunities(client, company_name)
+        challenges_data = await get_challenges_and_opportunities(client, company_name, {})
         industry_overview_data = await get_industry_overview(client, company_name)
         data_maturity_data = await get_data_maturity_and_initiatives(client, company_name)
         

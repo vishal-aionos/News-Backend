@@ -10,7 +10,7 @@ import httpx
 from bs4 import BeautifulSoup
 from typing import List, Dict, Any, Optional
 from py import generate_company_snapshot, get_executive_summary, get_key_facts, get_business_model, get_leadership, get_strategic_initiatives, get_data_maturity, get_partnerships, get_challenges_and_solutions, AIonOS_CAPABILITIES
-from battle_card import get_what_we_do, get_company_offerings, get_quick_facts, get_news_snapshot, get_pic_overview, get_data_maturity_and_initiatives
+from battle_card import get_what_we_do, get_company_offerings, get_quick_facts, get_news_snapshot, get_pic_overview, get_data_maturity_and_initiatives, get_challenges_and_opportunities
 
 app = FastAPI(
     title="News API",
@@ -319,7 +319,8 @@ async def get_company_news(company: str, company_url: str = None, geography: str
                 "quick_facts": await get_quick_facts(client, company),
                 "news_snapshot": await get_news_snapshot(client, company, themes),
                 "pic_overview": await get_pic_overview(client, company),
-                "data_maturity_and_initiatives": await get_data_maturity_and_initiatives(client, company)
+                "data_maturity_and_initiatives": await get_data_maturity_and_initiatives(client, company),
+                "challenges_and_opportunities": await get_challenges_and_opportunities(client, company, snapshot_result.get("snapshot", {}).get("Challenges & AIonOS Opportunities", {}))
             }
 
         # Structure the response
