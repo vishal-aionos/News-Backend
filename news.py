@@ -309,6 +309,7 @@ async def get_company_news(company: str, company_url: str = None, geography: str
             "themes": themes,
             "company_snapshot": {
                 "Company Snapshot": snapshot_result.get("snapshot", {}).get("Company Snapshot", {}),
+                 "Initiatives": snapshot_result.get("snapshot", {}).get("Initiatives", {}),
                 "Challenges & AIonOS Opportunities": snapshot_result.get("snapshot", {}).get("Challenges & AIonOS Opportunities", {})
             },
             "battle_card": battle_card_data

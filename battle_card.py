@@ -123,15 +123,16 @@ async def get_news_snapshot(client: httpx.AsyncClient, company_name: str, themes
 
 
         # Use Gemini to summarize the combined themes data into a single list of extremely concise bullet points
-        prompt = f"""Analyze the following news themes and their key points. Provide a single list of extremely concise bullet points summarizing the most important takeaways from ALL the themes combined. Each bullet point should reflect one of the following categories: Partnerships, AI/Tech, Market Strategy, Expansion, Product/Fleet, Infrastructure/Investment.
+        prompt = f"""Analyze the following news themes and extract the key points. Provide a single, concise list of bullet points that summarize the most important takeaways across all themes. Each bullet should clearly reflect one of these categories: Partnerships, AI/Tech, Market Strategy, Expansion, Product/Fleet, or Infrastructure/Investment.
 
 Formatting Instructions:
-Donot give intro or outro in the 
-Begin each bullet point with the bullet mark • followed by a space.
-Do not include any theme headings or subheadings in the output.
-Keep each bullet point very short and to the point.
-Ensure each bullet clearly reflects one of the six focus categories.
-Here are the themes and points to analyze:{combined_themes_text}"""
+• Start each point with a bullet (•) and a space.
+• Do not include any category headings or subheadings.
+• Keep each bullet extremely brief and to the point.
+• Ensure each bullet implicitly reflects its relevant category without labeling it."
+
+Here are the themes and points to analyze:
+{combined_themes_text}"""
 
         loop = asyncio.get_event_loop()
         summarized_response = await loop.run_in_executor(None, model.generate_content, prompt)

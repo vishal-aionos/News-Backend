@@ -17,9 +17,56 @@ GEMINI_API_KEY = "AIzaSyAt_c0xgaXGg9H4oFX0YUqsQuhnV4gi7BY"
 
 # AIonOS Capabilities
 AIonOS_CAPABILITIES = (
-    "AIonOS pioneers industry-specific Agentic AI solutions that autonomously solve "
-    "complex business challenges while collaborating with human teams for optimal outcomes "
-    "across travel, transport, hospitality, logistics, and telecom sectors."
+     """Agentic Assistants & Customer Experience
+ConciergeAgent/Mate – Real-time voice/text assistant for end-to-end journey support and disruption management.
+
+IntelliConverse – Multilingual AI interface for seamless support across voice, chat, and messaging channels.
+
+IntelliEmail – Automated email engine for confirmations, updates, and customer notifications.
+
+IntelliVoice – Natural language assistant for bookings, changes, and cancellations.
+
+IntelliSurvey – Conversational feedback tool to capture post-service insights.
+
+IntelliSocial – Real-time social engagement tool for responding to customer signals and brand mentions.
+
+AI & Analytics Engines
+IntelliPulse – Dashboard monitoring sentiment, compliance, and agent-customer interactions.
+
+IntelliRAG – Retrieval-Augmented Generation system delivering accurate, policy-compliant agent responses.
+
+IntelliReach – Personalization engine for contextual journey recommendations and banking offers.
+
+IntelliMarketing – AI-driven campaign engine optimizing personalization and targeting.
+
+IntelliFinCrime – Financial crime detection tool for monitoring fraud, AML, and anomalies.
+
+IntelliRegTech – Compliance assistant automating regulatory tracking and audit documentation.
+
+IntelliResilience – AI-powered system for predictive recovery, failover, and SLA assurance.
+
+IntelliSustain – ESG monitoring platform tracking emissions, waste, and regulatory compliance.
+
+Operations & Workflow Automation
+IntelliWorkflow – AI-driven orchestration of complex cross-functional business processes.
+
+Smart Exchange – Platform for reconciling and exchanging logistics and trade financial data.
+
+Smart Verify – Identity verification engine combining authentication, fraud detection, and user context.
+
+Industry Platforms & Infrastructure
+Freight Forwarding System (FFS) – End-to-end logistics platform managing multimodal shipments, CRM, billing, and documentation.
+
+Warehouse Management System – Streamlines inbound/outbound processes, inventory, and reporting.
+
+Dynamic Workforce Tracking – Real-time tracking of vehicles and workforce across the supply chain.
+
+Smart Building Management – Centralized control and optimization of building systems and assets.
+
+Data & Collaboration
+Data Collaboration Platform – Consent-based data mesh enabling secure internal and external data sharing.
+
+AionOS delivers industry-specific Agentic AI solutions that autonomously address complex business challenges while enhancing human collaboration—driving innovation across travel, logistics, hospitality, telecom, and transport."""
 )
 
 # Configure Gemini
@@ -31,44 +78,34 @@ thread_pool = ThreadPoolExecutor(max_workers=8)
 API_SEMAPHORE = asyncio.Semaphore(5)
 
 async def search_serper_async(client: httpx.AsyncClient, company_name: str, query: str, max_results: int = 3) -> List[str]:
-    """Search using Serper API with multiple query variations."""
+    """Search using Serper API with a single optimized query."""
     try:
         async with API_SEMAPHORE:
-            queries = [
-                f"{company_name} {query}",
-                f"{company_name} company {query}",
-                f"{company_name} latest {query}",
-                f"{company_name} official {query}",
-                f"{company_name} corporate {query}",
-                f"{company_name} {query} 2024"
-            ]
+            # Single comprehensive query that includes the year to get recent results
+            search_query = f"{company_name} recent {query}"
+            
+            url = "https://google.serper.dev/search"
+            headers = {"X-API-KEY": SERPER_API_KEY}
+            payload = {
+                "q": search_query,
+                "gl": "us",
+                "hl": "en",
+                "num": max_results
+            }
+            
+            response = await client.post(url, json=payload, headers=headers, timeout=3.0)
+            response.raise_for_status()
+            results = response.json()
             
             all_urls = []
-            for search_query in queries:
-                url = "https://google.serper.dev/search"
-                headers = {"X-API-KEY": SERPER_API_KEY}
-                payload = {
-                    "q": search_query,
-                    "gl": "us",
-                    "hl": "en",
-                    "num": max_results
-                }
-                
-                response = await client.post(url, json=payload, headers=headers, timeout=3.0)
-                response.raise_for_status()
-                results = response.json()
-                
-                if results.get("organic"):
-                    for result in results["organic"]:
-                        if result.get("link") and not any(x in result["link"].lower() for x in ["youtube.com", "facebook.com", "twitter.com", "linkedin.com"]):
-                            if result["link"] not in all_urls:
-                                all_urls.append(result["link"])
-                                if len(all_urls) >= max_results:
-                                    break
-                
-                if len(all_urls) >= max_results:
-                    break
-                    
+            if results.get("organic"):
+                for result in results["organic"]:
+                    if result.get("link") and not any(x in result["link"].lower() for x in ["youtube.com", "facebook.com", "twitter.com", "linkedin.com"]):
+                        if result["link"] not in all_urls:
+                            all_urls.append(result["link"])
+                            if len(all_urls) >= max_results:
+                                break
+            
             return all_urls
     except Exception:
         return []
@@ -457,7 +494,7 @@ async def get_challenges_and_solutions(client: httpx.AsyncClient, company_name: 
     tried_urls = []
     
     # Search for challenges from web
-    web_urls = await search_serper_async(client, company_name, "latest challenges", max_results=3)
+    web_urls = await search_serper_async(client, company_name, "challenges", max_results=3)
     
     # Process web content
     for url in web_urls:
